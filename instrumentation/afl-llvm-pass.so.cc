@@ -1084,7 +1084,7 @@ bool AFLCoverage::runOnModule(Module &M) {
               MatcherTable->getType()->getPointerElementType())) {
 
         size_t MatcherTableSize = MatcherTableTy->getNumElements();
-        SAYF("MatcherTable size: %d", MatcherTableSize);
+        SAYF("MatcherTable size: %zu", MatcherTableSize);
         /*
         Type           *IntType = Type::getInt64Ty(C);
         GlobalVariable *TableSize =

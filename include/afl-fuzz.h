@@ -530,6 +530,8 @@ typedef struct afl_state {
       *virgin_crash;                    /* Bits we haven't seen in crashes  */
 
   u8 *shadow_bits;                    /* Regions uncoverred in MatcherTable */
+  u8  use_shadow_bits; /* Whether shadow bits can determine if the input is
+                          interesting. */
 
   double *alias_probability;            /* alias weighted probabilities     */
   u32    *alias_table;                /* alias weighted random lookup table */
@@ -1052,6 +1054,7 @@ u32  calculate_score(afl_state_t *, struct queue_entry *);
 
 void write_bitmap(afl_state_t *);
 u32  count_bits(afl_state_t *, u8 *);
+u32  count_shadow_bits(u8 *mem, u32 size);
 u32  count_bytes(afl_state_t *, u8 *);
 u32  count_non_255_bytes(afl_state_t *, u8 *);
 void simplify_trace(afl_state_t *, u8 *);
@@ -1086,8 +1089,8 @@ void destroy_extras(afl_state_t *);
 
 void load_stats_file(afl_state_t *);
 void write_setup_file(afl_state_t *, u32, char **);
-void write_stats_file(afl_state_t *, u32, double, double, double);
-void maybe_update_plot_file(afl_state_t *, u32, double, double);
+void write_stats_file(afl_state_t *, u32, double, double, double, double);
+void maybe_update_plot_file(afl_state_t *, u32, double, double, double);
 void show_stats(afl_state_t *);
 void show_stats_normal(afl_state_t *);
 void show_stats_pizza(afl_state_t *);

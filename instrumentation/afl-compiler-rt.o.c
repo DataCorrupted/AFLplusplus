@@ -683,6 +683,16 @@ static void __afl_map_shm(void) {
 
 #endif
 
+    if (__afl_debug) {
+
+      fprintf(stderr,
+              "DEBUG: (3) id_str %s, __afl_shadow_table_ptr %p, "
+              "__afl_shadow_table_size %zu.\n",
+              id_str == NULL ? "<null>" : id_str, __afl_shadow_table_ptr,
+              __afl_shadow_table_size);
+
+    }
+
   }
 
 }

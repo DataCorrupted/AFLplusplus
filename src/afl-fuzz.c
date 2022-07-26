@@ -47,7 +47,8 @@ extern u64 time_spent_working;
 static void at_exit() {
 
   s32   i, pid1 = 0, pid2 = 0, pgrp = -1;
-  char *list[4] = {SHM_ENV_VAR, SHM_FUZZ_ENV_VAR, CMPLOG_SHM_ENV_VAR, NULL};
+  char *list[5] = {SHM_ENV_VAR, SHM_FUZZ_ENV_VAR, CMPLOG_SHM_ENV_VAR,
+                   SHADOW_SHM_ENV_VAR, NULL};
   char *ptr;
 
   ptr = getenv("__AFL_TARGET_PID2");
@@ -544,7 +545,7 @@ int main(int argc, char **argv_orig, char **envp) {
   while (
       (opt = getopt(
            argc, argv,
-           "+Ab:B:c:CdDe:E:hi:I:f:F:g:G:l:L:m:M:nNOo:p:RQs:S:t:T:UV:WXx:YZ")) >
+           "+Ab:B:c:CdDe:E:hi:I:f:F:g:G:l:L:m:M:nNOo:p:RQs:S:t:T:UV:wWXx:YZ")) >
       0) {
 
     switch (opt) {
@@ -886,6 +887,15 @@ int main(int argc, char **argv_orig, char **envp) {
           FATAL("Value of -m out of range on 32-bit systems");
 
         }
+
+        break;
+
+      }
+
+      case 'w': {
+
+        afl->use_shadow_bits = 1;
+        break;
 
       }
 
@@ -2147,12 +2157,14 @@ int main(int argc, char **argv_orig, char **envp) {
   } else {
 
     memset(afl->virgin_bits, 255, map_size);
-    memset(afl->shadow_bits, 0, map_size);
+    memset(afl->shadow_bits, 0, afl->shadow_shm.map_size);
 
   }
 
   memset(afl->virgin_tmout, 255, map_size);
   memset(afl->virgin_crash, 255, map_size);
+
+  OKF("Global map set, going to dry run");
 
   perform_dry_run(afl);
 
@@ -2220,8 +2232,8 @@ int main(int argc, char **argv_orig, char **envp) {
 
   }
 
-  if (!afl->non_instrumented_mode) { write_stats_file(afl, 0, 0, 0, 0); }
-  maybe_update_plot_file(afl, 0, 0, 0);
+  if (!afl->non_instrumented_mode) { write_stats_file(afl, 0, 0, 0, 0, 0); }
+  maybe_update_plot_file(afl, 0, 0, 0, 0);
   save_auto(afl);
 
   if (afl->stop_soon) { goto stop_fuzzing; }

@@ -85,6 +85,7 @@ void afl_state_init(afl_state_t *afl, uint32_t map_size) {
   afl->shadow_shm.map_size =
       SHADOW_TABLE_ALLIGNED_SIZE;  // TODO: Fixed size for AIE now. Use other
                                    // ways.
+  afl->shadow_shm.shadow_mode = 1;
 
   afl->w_init = 0.9;
   afl->w_end = 0.3;

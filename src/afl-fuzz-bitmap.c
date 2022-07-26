@@ -94,7 +94,7 @@ u32 count_bits(afl_state_t *afl, u8 *mem) {
 
 }
 
-u32 count_shadow_bit(u8 *mem, u32 size) {
+u32 count_shadow_bits(u8 *mem, u32 size) {
 
   u32  ret = 0;
   u32 *Mem = (u32 *)mem;
@@ -301,10 +301,16 @@ inline u8 has_new_bits_unclassified(afl_state_t *afl, u8 *virgin_map) {
   if (cmp_and_merge_shadow_bits(afl->fsrv.shadow_bits, afl->shadow_bits,
                                 afl->fsrv.shadow_size)) {
 
-    // Also classify and merge edge coverage map.
-    classify_counts(&afl->fsrv);
-    has_new_bits(afl, virgin_map);
-    return 2;
+    // We compare and merge shadow bits anyway to see the difference when
+    // fuzzing isel.
+    if (likely(afl->use_shadow_bits)) {
+
+      // Also classify and merge edge coverage map.
+      classify_counts(&afl->fsrv);
+      has_new_bits(afl, virgin_map);
+      return 2;
+
+    }
 
   }
 
