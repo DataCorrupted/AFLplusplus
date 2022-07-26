@@ -82,6 +82,7 @@ typedef struct afl_forkserver {
   /* a program that includes afl-forkserver needs to define these */
 
   u8 *trace_bits;                       /* SHM with instrumentation bitmap  */
+  u8 *shadow_bits;      /* SHM with instrumentation bitmap for MatcherTable */
 
   s32 fsrv_pid,                         /* PID of the fork server           */
       child_pid,                        /* PID of the fuzzed program        */
@@ -99,6 +100,7 @@ typedef struct afl_forkserver {
   u32 init_tmout;                       /* Configurable init timeout (ms)   */
   u32 map_size;                         /* map size used by the target      */
   u32 real_map_size;                    /* real map size, unaligned         */
+  u32 shadow_size;                 /* Shadow map size to trace MatcherTable */
   u32 snapshot;                         /* is snapshot feature used         */
   u64 mem_limit;                        /* Memory cap for child (MB)        */
 
@@ -150,7 +152,7 @@ typedef struct afl_forkserver {
 #ifdef AFL_PERSISTENT_RECORD
   u32  persistent_record_idx;           /* persistent replay cache ptr      */
   u32  persistent_record_cnt;           /* persistent replay counter        */
-  u8 * persistent_record_dir;
+  u8  *persistent_record_dir;
   u8 **persistent_record_data;
   u32 *persistent_record_len;
   s32  persistent_record_pid;
@@ -168,14 +170,14 @@ typedef struct afl_forkserver {
 
 #ifdef __linux__
   nyx_plugin_handler_t *nyx_handlers;
-  char *                out_dir_path;    /* path to the output directory     */
+  char                 *out_dir_path;    /* path to the output directory     */
   u8                    nyx_mode;        /* if running in nyx mode or not    */
   bool                  nyx_parent;      /* create initial snapshot          */
   bool                  nyx_standalone;  /* don't serialize the snapshot     */
-  void *                nyx_runner;      /* nyx runner object                */
+  void                 *nyx_runner;      /* nyx runner object                */
   u32                   nyx_id;          /* nyx runner id (0 -> master)      */
   u32                   nyx_bind_cpu_id; /* nyx runner cpu id                */
-  char *                nyx_aux_string;
+  char                 *nyx_aux_string;
 #endif
 
 } afl_forkserver_t;

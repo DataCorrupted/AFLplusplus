@@ -1,4 +1,4 @@
-# Using AFL++ with partial instrumentation
+#Using AFL++ with partial instrumentation
 
 This file describes two different mechanisms to selectively instrument only
 specific parts in the target.
@@ -32,20 +32,25 @@ After the includes, a special define has to be made, e.g.:
 __AFL_COVERAGE();  // <- required for this feature to work
 ```
 
-If you want to disable the coverage at startup until you specify coverage should
-be started, then add `__AFL_COVERAGE_START_OFF();` at that position.
+    If you want to disable the coverage at startup until you specify coverage
+        should be started,
+    then          add `__AFL_COVERAGE_START_OFF();
+` at that         position.
 
-From here on out, you have the following macros available that you can use in
-any function where you want:
+    From here on out,
+    you have the following macros available that you can use in any function
+        where you want :
 
-* `__AFL_COVERAGE_ON();` - Enable coverage from this point onwards.
-* `__AFL_COVERAGE_OFF();` - Disable coverage from this point onwards.
-* `__AFL_COVERAGE_DISCARD();` - Reset all coverage gathered until this point.
-* `__AFL_COVERAGE_SKIP();` - Mark this test case as unimportant. Whatever
-  happens, afl-fuzz will ignore it.
+    * `__AFL_COVERAGE_ON();
+` - Enable coverage from this point  onwards.* `__AFL_COVERAGE_OFF();
+` - Disable coverage from this point onwards.* `__AFL_COVERAGE_DISCARD();
+` - Reset all coverage gathered      until this point.* `__AFL_COVERAGE_SKIP();
+` - Mark this test case as unimportant.Whatever happens,
+    afl - fuzz will ignore
+              it.
 
-A special function is `__afl_coverage_interesting`. To use this, you must define
-`void __afl_coverage_interesting(u8 val, u32 id);`. Then you can use this
+          A special function is `__afl_coverage_interesting`.To use this,
+    you must define `void __afl_coverage_interesting(u8 val, u32 id);`. Then you can use this
 function globally, where the `val` parameter can be set by you, the `id`
 parameter is for afl-fuzz and will be overwritten. Note that useful parameters
 for `val` are: 1, 2, 3, 4, 8, 16, 32, 64, 128. A value of, e.g., 33 will be seen

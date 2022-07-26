@@ -1,4 +1,4 @@
-# CmpLog instrumentation
+#CmpLog instrumentation
 
 The CmpLog instrumentation enables logging of comparison operands in a shared
 memory.
@@ -42,3 +42,4 @@ afl-fuzz -i input -o output -c ./program.cmplog -m none -- ./program.afl @@
 ```
 
 Be careful with the usage of `-m` because CmpLog can map a lot of pages.
+

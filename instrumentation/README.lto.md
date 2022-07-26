@@ -1,6 +1,6 @@
-# afl-clang-lto - collision free instrumentation at link time
+#afl - clang - lto - collision free instrumentation at link time
 
-## TL;DR:
+##TL;DR:
 
 This version requires a current llvm 11+ compiled from the GitHub master.
 
@@ -100,9 +100,9 @@ cd llvm-project
 mkdir build
 cd build
 
-# Add -G Ninja if ninja-build installed
-# "Building with ninja significantly improves your build time, especially with
-# incremental builds, and improves your memory usage."
+#Add - G Ninja if ninja - build installed
+#"Building with ninja significantly improves your build time, especially with
+#incremental builds, and improves your memory usage."
 cmake \
     -DCLANG_INCLUDE_DOCS="OFF" \
     -DCMAKE_BUILD_TYPE=Release \

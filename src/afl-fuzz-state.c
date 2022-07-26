@@ -82,6 +82,9 @@ void afl_state_init(afl_state_t *afl, uint32_t map_size) {
   memset(afl, 0, sizeof(afl_state_t));
 
   afl->shm.map_size = map_size ? map_size : MAP_SIZE;
+  afl->shadow_shm.map_size =
+      SHADOW_TABLE_ALLIGNED_SIZE;  // TODO: Fixed size for AIE now. Use other
+                                   // ways.
 
   afl->w_init = 0.9;
   afl->w_end = 0.3;
@@ -125,8 +128,11 @@ void afl_state_init(afl_state_t *afl, uint32_t map_size) {
   afl->first_trace = ck_alloc(map_size);
   afl->map_tmp_buf = ck_alloc(map_size);
 
+  afl->shadow_bits = ck_alloc(afl->shadow_shm.map_size);
+
   afl->fsrv.use_stdin = 1;
   afl->fsrv.map_size = map_size;
+  afl->fsrv.shadow_size = afl->shadow_shm.map_size;
   // afl_state_t is not available in forkserver.c
   afl->fsrv.afl_ptr = (void *)afl;
   afl->fsrv.add_extra_func = (void (*)(void *, u8 *, u32)) & add_extra;
@@ -638,6 +644,7 @@ void afl_state_deinit(afl_state_t *afl) {
   ck_free(afl->clean_trace_custom);
   ck_free(afl->first_trace);
   ck_free(afl->map_tmp_buf);
+  ck_free(afl->shadow_bits);
 
   list_remove(&afl_states, afl);
 
@@ -647,11 +654,7 @@ void afl_states_stop(void) {
 
   /* We may be inside a signal handler.
    Set flags first, send kill signals to child proceses later. */
-  LIST_FOREACH(&afl_states, afl_state_t, {
-
-    el->stop_soon = 1;
-
-  });
+  LIST_FOREACH(&afl_states, afl_state_t, { el->stop_soon = 1; });
 
   LIST_FOREACH(&afl_states, afl_state_t, {
 

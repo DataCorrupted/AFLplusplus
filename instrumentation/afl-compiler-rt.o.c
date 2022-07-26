@@ -92,11 +92,15 @@ static u8  __afl_area_initial[MAP_INITIAL_SIZE];
 static u8 *__afl_area_ptr_dummy = __afl_area_initial;
 static u8 *__afl_area_ptr_backup = __afl_area_initial;
 
-u8 *       __afl_area_ptr = __afl_area_initial;
-u8 *       __afl_dictionary;
-u8 *       __afl_fuzz_ptr;
+int __afl_shadow_table_size =
+    SHADOW_TABLE_ALLIGNED_SIZE;  // TODO: Fixed size for AIE now. Use other
+                                 // ways.
+u8        *__afl_shadow_table_ptr;
+u8        *__afl_area_ptr = __afl_area_initial;
+u8        *__afl_dictionary;
+u8        *__afl_fuzz_ptr;
 static u32 __afl_fuzz_len_dummy;
-u32 *      __afl_fuzz_len = &__afl_fuzz_len_dummy;
+u32       *__afl_fuzz_len = &__afl_fuzz_len_dummy;
 
 u32 __afl_final_loc;
 u32 __afl_map_size = MAP_SIZE;
@@ -399,7 +403,7 @@ static void __afl_map_shm(void) {
     }
 
 #ifdef USEMMAP
-    const char *   shm_file_path = id_str;
+    const char    *shm_file_path = id_str;
     int            shm_fd = -1;
     unsigned char *shm_base = NULL;
 
@@ -583,7 +587,7 @@ static void __afl_map_shm(void) {
     }
 
 #ifdef USEMMAP
-    const char *    shm_file_path = id_str;
+    const char     *shm_file_path = id_str;
     int             shm_fd = -1;
     struct cmp_map *shm_base = NULL;
 
@@ -627,6 +631,57 @@ static void __afl_map_shm(void) {
       _exit(1);
 
     }
+
+  }
+
+  id_str = getenv(SHADOW_SHM_ENV_VAR);
+  if (id_str) {
+
+#ifdef USEMMAP
+    const char    *shm_file_path = id_str;
+    int            shm_fd = -1;
+    unsigned char *shm_base = NULL;
+
+    /* create the shared memory segment as if it was a file */
+    shm_fd = shm_open(shm_file_path, O_RDWR, DEFAULT_PERMISSION);
+    if (shm_fd == -1) {
+
+      fprintf(stderr, "shm_open() failed\n");
+      send_forkserver_error(FS_ERROR_SHM_OPEN);
+      exit(1);
+
+    }
+
+    shm_base = mmap(0, __afl_shadow_table_size, PROT_READ | PROT_WRITE,
+                    MAP_SHARED, shm_fd, 0);
+    close(shm_fd);
+    shm_fd = -1;
+
+    if (shm_base == MAP_FAILED) {
+
+      fprintf(stderr, "mmap() failed\n");
+      send_forkserver_error(FS_ERROR_SHM_OPEN);
+      exit(2);
+
+    }
+
+    __afl_shadow_table_ptr = shm_base;
+#else
+    u32 shm_id = atoi(id_str);
+
+    __afl_shadow_table_ptr = (u8 *)shmat(shm_id, NULL, 0);
+
+    /* Whooooops. */
+
+    if (!__afl_shadow_table_ptr || __afl_shadow_table_ptr == (void *)-1) {
+
+      perror("shmat for shadow map");
+      send_forkserver_error(FS_ERROR_SHM_OPEN);
+      _exit(1);
+
+    }
+
+#endif
 
   }
 
@@ -681,6 +736,24 @@ static void __afl_unmap_shm(void) {
 
   }
 
+  id_str = getenv(SHADOW_SHM_ENV_VAR);
+
+  if (id_str) {
+
+#ifdef USEMMAP
+
+    munmap((void *)__afl_shadow_table_ptr, __afl_shadow_table_size);
+
+#else
+
+    shmdt((void *)__afl_shadow_table_ptr);
+
+#endif
+
+    __afl_shadow_table_ptr = NULL;
+
+  }
+
   __afl_already_initialized_shm = 0;
 
 }
@@ -689,7 +762,7 @@ static void __afl_unmap_shm(void) {
 
 void write_error_with_location(char *text, char *filename, int linenumber) {
 
-  u8 *  o = getenv("__AFL_OUT_DIR");
+  u8   *o = getenv("__AFL_OUT_DIR");
   char *e = strerror(errno);
 
   if (o) {
@@ -1212,14 +1285,15 @@ int __afl_persistent_loop(unsigned int max_cnt) {
 
   if (first_pass) {
 
-    /* Make sure that every iteration of __AFL_LOOP() starts with a clean slate.
-       On subsequent calls, the parent will take care of that, but on the first
-       iteration, it's our job to erase any trace of whatever happened
-       before the loop. */
+    /* Make sure that every iteration of __AFL_LOOP() starts with a clean
+       slate. On subsequent calls, the parent will take care of that, but on
+       the first iteration, it's our job to erase any trace of whatever
+       happened before the loop. */
 
     if (is_persistent) {
 
       memset(__afl_area_ptr, 0, __afl_map_size);
+      memset(__afl_shadow_table_ptr, 0, __afl_shadow_table_size);
       __afl_area_ptr[0] = 1;
       memset(__afl_prev_loc, 0, NGRAM_SIZE_MAX * sizeof(PREV_LOC_T));
 
@@ -1330,7 +1404,8 @@ __attribute__((constructor(EARLY_FS_PRIO))) void __early_forkserver(void) {
 
 }
 
-/* Initialization of the shmem - earliest possible because of LTO fixed mem. */
+/* Initialization of the shmem - earliest possible because of LTO fixed mem.
+ */
 
 __attribute__((constructor(CTOR_PRIO))) void __afl_auto_early(void) {
 
@@ -1402,9 +1477,10 @@ __attribute__((constructor(0))) void __afl_auto_first(void) {
 
 }  // ptr memleak report is a false positive
 
-/* The following stuff deals with supporting -fsanitize-coverage=trace-pc-guard.
-   It remains non-operational in the traditional, plugin-backed LLVM mode.
-   For more info about 'trace-pc-guard', see README.llvm.md.
+/* The following stuff deals with supporting
+   -fsanitize-coverage=trace-pc-guard. It remains non-operational in the
+   traditional, plugin-backed LLVM mode. For more info about 'trace-pc-guard',
+   see README.llvm.md.
 
    The first function (__sanitizer_cov_trace_pc_guard) is called back on every
    edge (as opposed to every basic block). */
@@ -1527,7 +1603,8 @@ void __sanitizer_cov_trace_pc_guard_init(uint32_t *start, uint32_t *stop) {
 
     if (__afl_debug) {
 
-      fprintf(stderr, "Warning: new instrumented code after the forkserver!\n");
+      fprintf(stderr, "Warning: new instrumented code after the
+  forkserver!\n");
 
     }
 
@@ -1557,8 +1634,8 @@ void __sanitizer_cov_trace_pc_guard_init(uint32_t *start, uint32_t *stop) {
   */
 
   /* Make sure that the first element in the range is always set - we use that
-     to avoid duplicate calls (which can happen as an artifact of the underlying
-     implementation in LLVM). */
+     to avoid duplicate calls (which can happen as an artifact of the
+     underlying implementation in LLVM). */
 
   *(start++) = ++__afl_final_loc;
 
@@ -1945,8 +2022,8 @@ __attribute__((weak)) void *__asan_region_is_poisoned(void *beg, size_t size) {
 }
 
 // POSIX shenanigan to see if an area is mapped.
-// If it is mapped as X-only, we have a problem, so maybe we should add a check
-// to avoid to call it on .text addresses
+// If it is mapped as X-only, we have a problem, so maybe we should add a
+// check to avoid to call it on .text addresses
 static int area_is_valid(void *ptr, size_t len) {
 
   if (unlikely(!ptr || __asan_region_is_poisoned(ptr, len))) { return 0; }
@@ -1983,7 +2060,8 @@ static int area_is_valid(void *ptr, size_t len) {
 }
 
 /* hook for string with length functions, eg. strncmp, strncasecmp etc.
-   Note that we ignore the len parameter and take longer strings if present. */
+   Note that we ignore the len parameter and take longer strings if present.
+ */
 void __cmplog_rtn_hook_strn(u8 *ptr1, u8 *ptr2, u64 len) {
 
   // fprintf(stderr, "RTN1 %p %p %u\n", ptr1, ptr2, len);

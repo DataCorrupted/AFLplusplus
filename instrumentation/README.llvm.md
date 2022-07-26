@@ -1,4 +1,4 @@
-# Fast LLVM-based instrumentation for afl-fuzz
+#Fast LLVM - based instrumentation for afl - fuzz
 
 For the general instruction manual, see [docs/README.md](../docs/README.md).
 
@@ -228,7 +228,9 @@ prev_location[0] >> 1 ^ prev_location[1] >> 1 ^ ... up to n-1`] += 1`
 ### Usage
 
 The size of `n` (i.e., the number of branches to remember) is an option that is
-specified either in the `AFL_LLVM_INSTRUMENT=NGRAM-{value}` or the
+specified either in the `AFL_LLVM_INSTRUMENT=NGRAM-{
+
+  value}` or the
 `AFL_LLVM_NGRAM_SIZE` environment variable. Good values are 2, 4, or 8, valid
 are 2-16.
 

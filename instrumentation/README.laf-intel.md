@@ -1,4 +1,4 @@
-# laf-intel instrumentation
+#laf - intel instrumentation
 
 ## Introduction
 
@@ -47,3 +47,4 @@ into 8 bit comparisons when necessary. It is activated with the
 Note that setting this automatically activates `AFL_LLVM_LAF_SPLIT_COMPARES`.
 
 You can also set `AFL_LLVM_LAF_ALL` and have all of the above enabled. :-)
+

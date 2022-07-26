@@ -106,6 +106,7 @@ void afl_fsrv_init(afl_forkserver_t *fsrv) {
   fsrv->child_pid = -1;
   fsrv->map_size = get_map_size();
   fsrv->real_map_size = fsrv->map_size;
+  fsrv->shadow_size = SHADOW_TABLE_ALLIGNED_SIZE;  /// TODO: Fixed size for AIE.
   fsrv->use_fauxsrv = false;
   fsrv->last_run_timed_out = false;
   fsrv->debug = false;
@@ -1472,6 +1473,7 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
   if (!fsrv->nyx_mode) {
 
     memset(fsrv->trace_bits, 0, fsrv->map_size);
+    memset(fsrv->shadow_bits, 0, fsrv->shadow_size);
     MEM_BARRIER();
 
   }
@@ -1674,11 +1676,7 @@ afl_fsrv_run_target(afl_forkserver_t *fsrv, u32 timeout,
 
 void afl_fsrv_killall() {
 
-  LIST_FOREACH(&fsrv_list, afl_forkserver_t, {
-
-    afl_fsrv_kill(el);
-
-  });
+  LIST_FOREACH(&fsrv_list, afl_forkserver_t, { afl_fsrv_kill(el); });
 
 }
 

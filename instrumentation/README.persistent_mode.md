@@ -1,4 +1,4 @@
-# llvm_mode persistent mode
+#llvm_mode persistent mode
 
 ## 1) Introduction
 
@@ -16,7 +16,8 @@ non-persistent mode, then the fuzz target keeps state.
 
 Examples can be found in [utils/persistent_mode](../utils/persistent_mode).
 
-## 2) TL;DR:
+## 2) TL;
+DR:
 
 Example `fuzz_target.c`:
 
@@ -53,27 +54,31 @@ main() {
   return 0;
 
 }
-```
-
-And then compile:
 
 ```
-afl-clang-fast -o fuzz_target fuzz_target.c -lwhat_you_need_for_your_target
+
+    And then                     compile :
+
+``` afl -
+    clang - fast - o fuzz_target fuzz_target.c -
+    lwhat_you_need_for_your_target
 ```
 
-And that is it! The speed increase is usually x10 to x20.
+    And that is it !The speed increase is usually x10 to x20.
 
-If you want to be able to compile the target without afl-clang-fast/lto, then
-add this just after the includes:
+    If you want to be able to compile the target without afl -
+    clang - fast / lto,
+    then add this just after the includes :
 
 ```c
 #ifndef __AFL_FUZZ_TESTCASE_LEN
-  ssize_t fuzz_len;
+        ssize_t fuzz_len;
   #define __AFL_FUZZ_TESTCASE_LEN fuzz_len
-  unsigned char fuzz_buf[1024000];
+unsigned char fuzz_buf[1024000];
   #define __AFL_FUZZ_TESTCASE_BUF fuzz_buf
   #define __AFL_FUZZ_INIT() void sync(void);
-  #define __AFL_LOOP(x) ((fuzz_len = read(0, fuzz_buf, sizeof(fuzz_buf))) > 0 ? 1 : 0)
+  #define __AFL_LOOP(x) \
+    ((fuzz_len = read(0, fuzz_buf, sizeof(fuzz_buf))) > 0 ? 1 : 0)
   #define __AFL_INIT() sync()
 #endif
 ```
@@ -91,31 +96,40 @@ before getting to the fuzzed data.
 
 In such cases, it's beneficial to initialize the forkserver a bit later, once
 most of the initialization work is already done, but before the binary attempts
-to read the fuzzed input and parse it; in some cases, this can offer a 10x+
-performance gain. You can implement delayed initialization in LLVM mode in a
-fairly simple way.
+to read the fuzzed input and parse it;
+in some            cases,
+    this can offer a 10x + performance gain
+                               .You can implement delayed initialization in LLVM
+                                   mode in a fairly simple way.
 
-First, find a suitable location in the code where the delayed cloning can take
-place. This needs to be done with *extreme* care to avoid breaking the binary.
-In particular, the program will probably malfunction if you select a location
-after:
+                           First,
+    find a suitable location in the code where the delayed cloning can take
+        place
+            .This needs to be done with *extreme *care to avoid breaking the
+                binary.In                                          particular,
+    the program will probably malfunction if you select a location after :
 
-- The creation of any vital threads or child processes - since the forkserver
-  can't clone them easily.
+    -The creation of any vital threads or
+    child processes - since the forkserver can't clone them easily.
 
-- The initialization of timers via `setitimer()` or equivalent calls.
+        - The initialization of timers via `setitimer()` or
+    equivalent calls.
 
-- The creation of temporary files, network sockets, offset-sensitive file
-  descriptors, and similar shared-state resources - but only provided that their
-  state meaningfully influences the behavior of the program later on.
+        - The creation of temporary files,
+    network sockets, offset - sensitive file descriptors,
+    and similar shared - state resources -
+        but only provided that their state meaningfully
+        influences the behavior of the program later on.
 
-- Any access to the fuzzed input, including reading the metadata about its size.
+        - Any access to the fuzzed input,
+    including reading the metadata about its size.
 
-With the location selected, add this code in the appropriate spot:
+    With the location selected,
+    add this code in the appropriate spot :
 
 ```c
 #ifdef __AFL_HAVE_MANUAL_CONTROL
-  __AFL_INIT();
+    __AFL_INIT();
 #endif
 ```
 
@@ -139,60 +153,68 @@ The basic structure of the program that does this would be:
 ```c
   while (__AFL_LOOP(1000)) {
 
-    /* Read input data. */
-    /* Call library code to be fuzzed. */
-    /* Reset state. */
+  /* Read input data. */
+  /* Call library code to be fuzzed. */
+  /* Reset state. */
 
-  }
+}
 
-  /* Exit normally. */
+/* Exit normally. */
 ```
 
-The numerical value specified within the loop controls the maximum number of
-iterations before AFL++ will restart the process from scratch. This minimizes
-the impact of memory leaks and similar glitches; 1000 is a good starting point,
-and going much higher increases the likelihood of hiccups without giving you any
-real performance benefits.
+    The numerical value specified within the loop controls the maximum number of
+        iterations before AFL++ will restart the process from      scratch
+            .This minimizes the impact of memory leaks and similar glitches;
+1000 is a good starting                                            point,
+    and going much higher increases the likelihood of hiccups without giving you
+            any real performance benefits
+                .
 
-A more detailed template is shown in
-[utils/persistent_mode](../utils/persistent_mode). Similarly to the deferred
-initialization, the feature works only with afl-clang-fast; `#ifdef` guards can
-be used to suppress it when using other compilers.
+        A more detailed template is shown
+            in[utils / persistent_mode](../ utils / persistent_mode)
+                .Similarly to the deferred initialization,
+    the feature works only with afl - clang - fast;
+`#ifdef ` guards can be used to suppress it when using other compilers.
 
-Note that as with the deferred initialization, the feature is easy to misuse; if
-you do not fully reset the critical state, you may end up with false positives
-or waste a whole lot of CPU power doing nothing useful at all. Be particularly
-wary of memory leaks and of the state of file descriptors.
+    Note that as with the deferred initialization,
+    the feature is easy to         misuse;
+if you
+  do
+    not fully reset the critical state,
+        you may end up with false positives or
+            waste a whole lot of CPU power doing nothing useful at
+                all.Be particularly wary of memory leaks and of the state of
+                    file descriptors.
 
-When running in this mode, the execution paths will inherently vary a bit
-depending on whether the input loop is being entered for the first time or
-executed again.
+            When running in this mode,
+        the execution paths will inherently vary a bit depending on whether the
+                input loop is being entered for the first time or
+            executed again.
 
-## 5) Shared memory fuzzing
+            ##5) Shared memory fuzzing
 
-You can speed up the fuzzing process even more by receiving the fuzzing data via
-shared memory instead of stdin or files. This is a further speed multiplier of
-about 2x.
+        You can speed up the fuzzing process even more by receiving the fuzzing
+            data via shared memory instead of       stdin or
+        files.This is a further speed multiplier of about 2x.
 
-Setting this up is very easy:
+        Setting this up is very easy :
 
-After the includes set the following macro:
+        After the includes set the following macro :
 
-```c
-__AFL_FUZZ_INIT();
+```c __AFL_FUZZ_INIT();
 ```
 
-Directly at the start of main - or if you are using the deferred forkserver with
-`__AFL_INIT()`, then *after* `__AFL_INIT()`:
+        Directly at the start of                main -
+    or if you are using the deferred forkserver with
+`__AFL_INIT()`,
+    then *after * `__AFL_INIT()`:
 
-```c
-  unsigned char *buf = __AFL_FUZZ_TESTCASE_BUF;
+```c unsigned char *buf = __AFL_FUZZ_TESTCASE_BUF;
 ```
 
-Then as first line after the `__AFL_LOOP` while loop:
+    Then as first line after the `__AFL_LOOP` while loop :
 
-```c
-  int len = __AFL_FUZZ_TESTCASE_LEN;
+```c int len = __AFL_FUZZ_TESTCASE_LEN;
 ```
 
-And that is all!
+    And that is all !

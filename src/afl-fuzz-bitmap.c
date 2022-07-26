@@ -50,6 +50,15 @@ void write_bitmap(afl_state_t *afl) {
 
   close(fd);
 
+  snprintf(fname, PATH_MAX, "%s/fuzz_shadowmap", afl->out_dir);
+  fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, DEFAULT_PERMISSION);
+
+  if (fd < 0) { PFATAL("Unable to open '%s'", fname); }
+
+  ck_write(fd, afl->shadow_bits, afl->fsrv.shadow_size, fname);
+
+  close(fd);
+
 }
 
 /* Count the number of bits set in the provided bitmap. Used for the status
@@ -78,6 +87,26 @@ u32 count_bits(afl_state_t *afl, u8 *mem) {
     v -= ((v >> 1) & 0x55555555);
     v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
     ret += (((v + (v >> 4)) & 0xF0F0F0F) * 0x01010101) >> 24;
+
+  }
+
+  return ret;
+
+}
+
+u32 count_shadow_bit(u8 *mem, u32 size) {
+
+  u32  ret = 0;
+  u32 *Mem = (u32 *)mem;
+  size = size >> 2;
+  while (size--) {
+
+    u32 v = *(Mem++);
+    if (likely(v == 0)) { continue; }
+    v = v - ((v >> 1) & 0x55555555);                 // add pairs of bits
+    v = (v & 0x33333333) + ((v >> 2) & 0x33333333);  // quads
+    v = (v + (v >> 4)) & 0x0F0F0F0F;                 // groups of 8
+    ret += (v * 0x01010101) >> 24;                   // horizontal sum of bytes
 
   }
 
@@ -237,17 +266,47 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
 
 }
 
-/* A combination of classify_counts and has_new_bits. If 0 is returned, then the
- * trace bits are kept as-is. Otherwise, the trace bits are overwritten with
- * classified values.
+inline u8 cmp_and_merge_shadow_bits(u8 *new, u8 *global, u32 size) {
+
+  u64 *New = (u64 *)new;
+  u64 *Global = (u64 *)global;
+  u32  Size = size >> 3;
+  u8   ret = 0;
+  while (Size) {
+
+    if ((*Global ^ *New) != 0) { ret = 2; }
+    *Global |= *New;
+    Global++;
+    New++;
+    Size--;
+
+  }
+
+  return ret;
+
+}
+
+/* A combination of classify_counts and has_new_bits. If 0 is returned, then
+ * the trace bits are kept as-is. Otherwise, the trace bits are overwritten
+ * with classified values.
  *
  * This accelerates the processing: in most cases, no interesting behavior
- * happen, and the trace bits will be discarded soon. This function optimizes
- * for such cases: one-pass scan on trace bits without modifying anything. Only
- * on rare cases it fall backs to the slow path: classify_counts() first, then
- * return has_new_bits(). */
+ * happen, and the trace bits will be discarded soon. This function
+ * optimizes for such cases: one-pass scan on trace bits without modifying
+ * anything. Only on rare cases it fall backs to the slow path:
+ * classify_counts() first, then return has_new_bits(). */
 
 inline u8 has_new_bits_unclassified(afl_state_t *afl, u8 *virgin_map) {
+
+  if (cmp_and_merge_shadow_bits(afl->fsrv.shadow_bits, afl->shadow_bits,
+                                afl->fsrv.shadow_size)) {
+
+    // Also classify and merge edge coverage map.
+    classify_counts(&afl->fsrv);
+    has_new_bits(afl, virgin_map);
+    return 2;
+
+  }
 
   /* Handle the hot path first: no new coverage */
   u8 *end = afl->fsrv.trace_bits + afl->fsrv.map_size;

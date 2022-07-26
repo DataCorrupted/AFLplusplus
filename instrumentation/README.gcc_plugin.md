@@ -1,13 +1,19 @@
-# GCC-based instrumentation for afl-fuzz
+#GCC - based instrumentation for afl - fuzz
 
-For the general instruction manual, see [docs/README.md](../docs/README.md).
+For the general instruction manual,
+    see[docs / README.md](../ docs / README.md)
+            .
 
-For the LLVM-based instrumentation, see [README.llvm.md](README.llvm.md).
+        For the LLVM
+        - based instrumentation,
+    see[README.llvm.md](README.llvm.md)
+            .
 
-This document describes how to build and use `afl-gcc-fast` and `afl-g++-fast`,
-which instrument the target with the help of gcc plugins.
+        This document describes how to build and use `afl
+        - gcc - fast` and `afl - g++ - fast`,
+    which instrument the target with the help of gcc plugins.
 
-TL;DR:
+    TL;DR:
 * Check the version of your gcc compiler: `gcc --version`
 * `apt-get install gcc-VERSION-plugin-dev` or similar to install headers for gcc
   plugins.
