@@ -555,7 +555,7 @@ void show_stats_normal(afl_state_t *afl) {
 
   u32 shadow_size = afl->fsrv.shadow_size;
   s_bits = count_shadow_bits(afl->shadow_bits, shadow_size);
-  s_bit_ratio = ((double)s_bits * 100) / (shadow_size << 3);
+  s_bit_ratio = 100.0 - ((double)s_bits * 100) / (shadow_size << 3);
 
   if (unlikely(t_bytes > afl->fsrv.real_map_size)) {
 
@@ -1347,7 +1347,7 @@ void show_stats_pizza(afl_state_t *afl) {
 
   u32 shadow_size = afl->fsrv.shadow_size;
   s_bits = count_shadow_bits(afl->shadow_bits, shadow_size);
-  s_bit_ratio = ((double)s_bits * 100) / (shadow_size << 3);
+  s_bit_ratio = 100.0 - ((double)s_bits * 100) / (shadow_size << 3);
 
   if (unlikely(t_bytes > afl->fsrv.real_map_size)) {
 

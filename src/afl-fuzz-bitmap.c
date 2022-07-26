@@ -270,15 +270,16 @@ inline u8 cmp_and_merge_shadow_bits(u8 *new, u8 *global, u32 size) {
 
   u64 *New = (u64 *)new;
   u64 *Global = (u64 *)global;
-  u32  Size = size >> 3;
-  u8   ret = 0;
-  while (Size) {
+  size = size >> 3;
+  u8 ret = 0;
+  while (size) {
 
-    if ((*Global ^ *New) != 0) { ret = 2; }
-    *Global |= *New;
+    if ((*Global & *New) != 0) { ret = 1; }
+
+    *Global &= ~*New;
     Global++;
     New++;
-    Size--;
+    size--;
 
   }
 
@@ -301,14 +302,13 @@ inline u8 has_new_bits_unclassified(afl_state_t *afl, u8 *virgin_map) {
   if (cmp_and_merge_shadow_bits(afl->fsrv.shadow_bits, afl->shadow_bits,
                                 afl->fsrv.shadow_size)) {
 
-    // We compare and merge shadow bits anyway to see the difference when
-    // fuzzing isel.
+    //  We compare and merge shadow bits anyway to see the difference when
+    //  fuzzing isel.
     if (likely(afl->use_shadow_bits)) {
 
       // Also classify and merge edge coverage map.
       classify_counts(&afl->fsrv);
-      has_new_bits(afl, virgin_map);
-      return 2;
+      return 4 | has_new_bits(afl, virgin_map);
 
     }
 
@@ -357,12 +357,19 @@ void minimize_bits(afl_state_t *afl, u8 *dst, u8 *src) {
 
 u8 *describe_op(afl_state_t *afl, u8 new_bits, size_t max_description_len) {
 
-  u8 is_timeout = 0;
+  u8 is_timeout = 0, new_shadow_cov = 0;
 
   if (new_bits & 0xf0) {
 
     new_bits -= 0x80;
     is_timeout = 1;
+
+  }
+
+  if (new_bits & 0x4) {
+
+    new_bits -= 4;
+    new_shadow_cov = 1;
 
   }
 
@@ -446,6 +453,8 @@ u8 *describe_op(afl_state_t *afl, u8 new_bits, size_t max_description_len) {
   }
 
   if (is_timeout) { strcat(ret, ",+tout"); }
+
+  if (new_shadow_cov) { strcat(ret, ",+shd"); }
 
   if (new_bits == 2) { strcat(ret, ",+cov"); }
 
@@ -608,7 +617,8 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
 
 #endif
 
-    if (new_bits == 2) {
+    // Have new shadow coverage is new coverage too.
+    if (new_bits & 0b0110) {
 
       afl->queue_top->has_new_cov = 1;
       ++afl->queued_with_cov;

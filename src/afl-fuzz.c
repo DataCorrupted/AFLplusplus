@@ -2157,7 +2157,7 @@ int main(int argc, char **argv_orig, char **envp) {
   } else {
 
     memset(afl->virgin_bits, 255, map_size);
-    memset(afl->shadow_bits, 0, afl->shadow_shm.map_size);
+    memset(afl->shadow_bits, 255, afl->shadow_shm.map_size);
 
   }
 
