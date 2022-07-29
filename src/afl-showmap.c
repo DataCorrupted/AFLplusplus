@@ -97,6 +97,7 @@ static volatile u8 stop_soon,          /* Ctrl-C pressed?                   */
     child_crashed;                     /* Child crashed?                    */
 
 static sharedmem_t       shm;
+static sharedmem_t       shadow_shm;
 static afl_forkserver_t *fsrv;
 static sharedmem_t      *shm_fuzz;
 
@@ -186,6 +187,7 @@ static void at_exit_handler(void) {
   if (remove_shm) {
 
     if (shm.map) afl_shm_deinit(&shm);
+    if (shadow_shm.map) afl_shm_deinit(&shadow_shm);
     if (fsrv->use_shmem_fuzz) deinit_shmem(fsrv, shm_fuzz);
 
   }
@@ -214,6 +216,53 @@ static void analyze_results(afl_forkserver_t *fsrv) {
 }
 
 /* Write results. */
+
+static void write_shadowmap_to_file(afl_forkserver_t *fsrv, u8 *outprefix) {
+
+  s32 fd;
+  u32 i = 0, j = 0;
+
+  {
+
+    char outfile[PATH_MAX];
+    strcpy(outfile, outprefix);
+    strcat(outfile, "-shadow.o");
+    fd = open(outfile, O_WRONLY | O_CREAT, DEFAULT_PERMISSION);
+    ck_write(fd, fsrv->shadow_bits, fsrv->shadow_size, outfile);
+    close(fd);
+
+  };
+
+  {
+
+    char outfile[PATH_MAX];
+    strcpy(outfile, outprefix);
+    strcat(outfile, "-shadow.txt");
+    fd = open(outfile, O_WRONLY | O_CREAT, DEFAULT_PERMISSION);
+    FILE *f = fdopen(fd, "w");
+
+    if (!f) { PFATAL("fdopen() failed"); }
+
+    for (i = 0; i < fsrv->shadow_size; i++) {
+
+      u8 b = fsrv->shadow_bits[i];
+      fprintf(f, "%06u: ", i << 3);
+      for (j = 0; j < 8; j++) {
+
+        fprintf(f, "%u", b >> 7);
+        b = b << 1;
+
+      }
+
+      fprintf(f, "\n");
+
+    }
+
+    fclose(f);
+
+  };
+
+}
 
 static u32 write_results_to_file(afl_forkserver_t *fsrv, u8 *outfile) {
 
@@ -304,6 +353,7 @@ static u32 write_results_to_file(afl_forkserver_t *fsrv, u8 *outfile) {
 
   }
 
+  write_shadowmap_to_file(fsrv, outfile);
   return ret;
 
 }
@@ -1152,8 +1202,11 @@ int main(int argc, char **argv_orig, char **envp) {
 
   set_up_environment(fsrv, argv);
 
+  shadow_shm.shadow_mode = 1;
+
   fsrv->target_path = find_binary(argv[optind]);
   fsrv->trace_bits = afl_shm_init(&shm, map_size, 0);
+  fsrv->shadow_bits = afl_shm_init(&shadow_shm, fsrv->shadow_size, 0);
 
   if (!quiet_mode) {
 
@@ -1434,6 +1487,7 @@ int main(int argc, char **argv_orig, char **envp) {
 
   remove_shm = 0;
   afl_shm_deinit(&shm);
+  afl_shm_deinit(&shadow_shm);
   if (fsrv->use_shmem_fuzz) shm_fuzz = deinit_shmem(fsrv, shm_fuzz);
 
   u32 ret;

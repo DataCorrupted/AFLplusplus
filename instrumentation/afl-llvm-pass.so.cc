@@ -103,7 +103,10 @@ class AFLCoverage : public ModulePass {
 #else
   bool runOnModule(Module &M) override;
 #endif
-  size_t instrumentMatcherTable(Module &M, Function &F);
+  void   ReportMatcherTableSize(Module &M, std::string Postfix);
+  size_t instrumentIsel(Module &M);
+  size_t instrumentGlobalIsel(Module &M);
+  size_t instrumentMatcherTable(Module &M, Function &F, Value *Table);
 
  protected:
   uint32_t    ngram_size = 0;
@@ -1058,51 +1061,11 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   */
 
-  /*
-  Type           *IntType = Type::getInt64Ty(C);
-  GlobalVariable *TableSize =
-      new GlobalVariable(M, IntType, false, GlobalValue::ExternalLinkage, 0,
-                         "__afl_shadow_table_size", 0);
-  */
-  for (Function &F : M) {
-
-    if (F.isDeclaration()) { continue; }
-    //  if (F.getName() == "main") { HaveMain = true; }
-    /// TODO: Demangle the name to make sure it's
-    /// SelectionDAGISel::SelectCodeCommon() in the future.
-    if (F.getName() ==
-        "_ZN4llvm16SelectionDAGISel16SelectCodeCommonEPNS_6SDNodeEPKhj") {
-
-      inst_blocks += instrumentMatcherTable(M, F);
-
-    } else if (F.getName() == "_ZN15AIEDAGToDAGISel6SelectEPN4llvm6SDNodeE") {
-
-      // Instrumented = true;
-      GlobalVariable *MatcherTable = M.getGlobalVariable(
-          "_ZZN15AIEDAGToDAGISel10SelectCodeEPN4llvm6SDNodeEE12MatcherTable");
-      if (ArrayType *MatcherTableTy = dyn_cast<ArrayType>(
-              MatcherTable->getType()->getPointerElementType())) {
-
-        size_t MatcherTableSize = MatcherTableTy->getNumElements();
-        SAYF("MatcherTable size: %zu", MatcherTableSize);
-        /*
-        Type           *IntType = Type::getInt64Ty(C);
-        GlobalVariable *TableSize =
-            new GlobalVariable(M, IntType, true, GlobalValue::ExternalLinkage,
-                               ConstantInt::get(IntType, MatcherTableSize),
-                               "__afl_shadow_table_size");
-        TableSize->setInitializer(ConstantInt::get(IntType, MatcherTableSize));
-        */
-
-      } else {
-
-        BADF("MatcherTable should have array type");
-
-      }
-
-    }
-
-  }
+  size_t Isel = instrumentIsel(M);
+  size_t GlobalIsel = instrumentGlobalIsel(M);
+  // A module shouldn't be both.
+  assert(!(Isel != 0 && GlobalIsel != 0));
+  inst_blocks += Isel + GlobalIsel;
 
   /* Say something nice. */
 
@@ -1135,7 +1098,116 @@ bool AFLCoverage::runOnModule(Module &M) {
 
 }
 
-size_t AFLCoverage::instrumentMatcherTable(Module &M, Function &F) {
+void AFLCoverage::ReportMatcherTableSize(Module &M, std::string Postfix) {
+
+  for (GlobalVariable &GlobalVar : M.getGlobalList()) {
+
+    if (GlobalVar.getName().find(Postfix) != StringRef::npos) {
+
+      GlobalVariable *MatcherTable = &GlobalVar;
+      if (ArrayType *MatcherTableTy = dyn_cast<ArrayType>(
+              MatcherTable->getType()->getPointerElementType())) {
+
+        size_t MatcherTableSize = MatcherTableTy->getNumElements();
+        OKF("MatcherTable size: %zu", MatcherTableSize);
+
+      } else {
+
+        BADF("MatcherTable should have array type");
+
+      }
+
+      break;
+
+    }
+
+  }
+
+}
+
+size_t AFLCoverage::instrumentIsel(Module &M) {
+
+  if (M.getName().find("ISelDAGToDAG") != StringRef::npos) {
+
+    ReportMatcherTableSize(
+        M, "DAGToDAGISel10SelectCodeEPN4llvm6SDNodeEE12MatcherTable");
+    return 0;
+
+  }
+
+  if (M.getName().find("SelectionDAGISel") == StringRef::npos) { return 0; }
+
+  for (Function &F : M) {
+
+    if (F.isDeclaration()) { continue; }
+    /// TODO: Demangle the name to make sure it's
+    /// SelectionDAGISel::SelectCodeCommon() in the future.
+
+    if (F.getName() ==
+        "_ZN4llvm16SelectionDAGISel16SelectCodeCommonEPNS_6SDNodeEPKhj") {
+
+      size_t ret = instrumentMatcherTable(M, F, F.getArg(2));
+      assert(ret);
+      return ret;
+
+    }
+
+  }
+
+}
+
+size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
+
+  size_t ret = 0;
+  if (M.getName().find("InstructionSelector") == StringRef::npos) { return 0; }
+  // Find table size.
+  ReportMatcherTableSize(M,
+                         "InstructionSelector13getMatchTableEvE11MatchTable0");
+
+  // For some reason `executeTable` is inlined in X86 and AIE, we can't really
+  // know who is the table, so we manually look for that
+  // `switch(MatcherOpcode)`, and back track to MatcherTable.
+  for (Function &F : M) {
+
+    for (BasicBlock &BB : F) {
+
+      Instruction *Terminator = BB.getTerminator();
+      if (SwitchInst *Switch = dyn_cast<SwitchInst>(Terminator)) {
+
+        // 62 types of MatcherOpcode. Check `InstructionSelector.h` for
+        // details.
+        if (Switch->getNumCases() == 62) {
+
+          // Condition is one of the Opcode that is taken out of the
+          // MatchTable.
+          Value *Condition = Switch->getCondition();
+          assert(Condition->getType() == Type::getInt64Ty(M.getContext()));
+          if (LoadInst *Load = dyn_cast<LoadInst>(Condition)) {
+
+            Value *Addr = Load->getOperand(0);
+            if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(Addr)) {
+
+              Value *Table = GEP->getOperand(0);
+              size_t ret = instrumentMatcherTable(M, F, Table);
+              assert(ret);
+              return ret;
+
+            }
+
+          }
+
+        }
+
+      }
+
+    }
+
+  }
+
+}
+
+size_t AFLCoverage::instrumentMatcherTable(Module &M, Function &F,
+                                           Value *TablePtr) {
 
   OKF("Instrumenting matcher table.");
   LLVMContext &C = M.getContext();
@@ -1156,50 +1228,49 @@ size_t AFLCoverage::instrumentMatcherTable(Module &M, Function &F) {
                               MDNode::get(C, None));
 
   // Setup table instrumentation
-  auto InstrumentIndexingMatcherTable =
-      [&M, &C, UnitTy, IndexTy, ShadowTablePtr](Instruction *TableIndexer,
-                                                Value       *Index) {
+  auto InstrumentIndexingMatcherTable = [&M, &C, UnitTy, IndexTy,
+                                         ShadowTablePtr](
+                                            Instruction *TableIndexer,
+                                            Value       *Index) {
 
-        const size_t UnitSize = 8;
-        const size_t UnitWidth = 3;
-        assert(1 << UnitWidth == UnitSize);
-        assert(UnitSize == UnitTy->getBitWidth());
-        IRBuilder<> IRB(TableIndexer);
+    const size_t UnitSize = 8;
+    const size_t UnitWidth = 3;
+    assert(1 << UnitWidth == UnitSize);
+    assert(UnitSize == UnitTy->getBitWidth());
+    IRBuilder<> IRB(TableIndexer);
 
-        /// TODO: Special judge if `Index` is a const.
-        // Get Unit index
-        ConstantInt *UnitMask = ConstantInt::get(IndexTy, UnitSize - 1);
-        Value *ShadowUnitIndex = IRB.CreateAnd(Index, UnitMask, "UnitIndex");
-        Value *ShadowTableIndex = IRB.CreateLShr(
-            Index, ConstantInt::get(UnitTy, UnitWidth), "TableIndex");
+    /// TODO: Special judge if `Index` is a const.
+    // Get Unit index
+    ConstantInt *UnitMask = ConstantInt::get(IndexTy, UnitSize - 1);
+    Value       *ShadowUnitIndex = IRB.CreateAnd(Index, UnitMask, "UnitIndex");
+    Value       *ShadowTableIndex = IRB.CreateLShr(
+              Index, ConstantInt::get(UnitTy, UnitWidth), "TableIndex");
 
-        // Load the old unit
-        Value *ShadowTableUnitPtr = IRB.CreateGEP(
-            UnitTy, ShadowTablePtr, {ShadowTableIndex}, "ShadowTableUnitPtr");
-        Value *OldUnit = IRB.CreateLoad(UnitTy, ShadowTableUnitPtr, "OldUnit");
-        // Create updated unit
-        Value *UpdatedUnit = IRB.CreateShl(ConstantInt::get(UnitTy, 1),
-                                           ShadowUnitIndex, "UpdateUnit");
-        // Create and store the new unit.
-        Value *NewUnit = IRB.CreateOr(UpdatedUnit, OldUnit, "NewUnit");
-        Value *UpdateTable =
-            IRB.CreateStore(NewUnit, ShadowTableUnitPtr, false);
+    // Load the old unit
+    Value *ShadowTableUnitPtr = IRB.CreateGEP(
+        UnitTy, ShadowTablePtr, {ShadowTableIndex}, "ShadowTableUnitPtr");
+    Value *OldUnit = IRB.CreateLoad(UnitTy, ShadowTableUnitPtr, "OldUnit");
+    // Create updated unit
+    Value *UpdatedUnit = IRB.CreateLShr(ConstantInt::get(UnitTy, 0b10000000),
+                                        ShadowUnitIndex, "UpdateUnit");
+    // Create and store the new unit.
+    Value *NewUnit = IRB.CreateOr(UpdatedUnit, OldUnit, "NewUnit");
+    Value *UpdateTable = IRB.CreateStore(NewUnit, ShadowTableUnitPtr, false);
 
-        for (Value *V : {ShadowUnitIndex, ShadowTableIndex, ShadowTableUnitPtr,
-                         OldUnit, UpdatedUnit, NewUnit, UpdateTable}) {
+    for (Value *V : {ShadowUnitIndex, ShadowTableIndex, ShadowTableUnitPtr,
+                     OldUnit, UpdatedUnit, NewUnit, UpdateTable}) {
 
-          if (Instruction *I = dyn_cast<Instruction>(V)) {
+      if (Instruction *I = dyn_cast<Instruction>(V)) {
 
-            I->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+        I->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
 
-          }
+      }
 
-        }
+    }
 
-      };
+  };
 
   // Instrument each table indexing event.
-  Value *TablePtr = F.getArg(2);
   size_t UserCnt = 0;
   for (Value::use_iterator V = TablePtr->use_begin(), E = TablePtr->use_end();
        V != E; ++V, UserCnt++) {
@@ -1224,8 +1295,7 @@ size_t AFLCoverage::instrumentMatcherTable(Module &M, Function &F) {
   }
 
   OKF("Users of MatcherTable: %zu", UserCnt);
-  return 0;
-  // return UserCnt;
+  return UserCnt;
 
 }
 

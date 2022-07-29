@@ -88,14 +88,13 @@ extern ssize_t _kern_write(int fd, off_t pos, const void *buffer,
                            size_t bufferSize);
 #endif  // HAIKU
 
+static u8  __afl_shadow_table_initial[MAP_INITIAL_SIZE];
 static u8  __afl_area_initial[MAP_INITIAL_SIZE];
 static u8 *__afl_area_ptr_dummy = __afl_area_initial;
 static u8 *__afl_area_ptr_backup = __afl_area_initial;
 
-int __afl_shadow_table_size =
-    SHADOW_TABLE_ALLIGNED_SIZE;  // TODO: Fixed size for AIE now. Use other
-                                 // ways.
-u8        *__afl_shadow_table_ptr;
+int        __afl_shadow_table_size;
+u8        *__afl_shadow_table_ptr = __afl_shadow_table_initial;
 u8        *__afl_area_ptr = __afl_area_initial;
 u8        *__afl_dictionary;
 u8        *__afl_fuzz_ptr;
@@ -635,6 +634,16 @@ static void __afl_map_shm(void) {
   }
 
   id_str = getenv(SHADOW_SHM_ENV_VAR);
+  __afl_shadow_table_size = SHADOW_TABLE_ALLIGNED_SIZE;
+  if (__afl_shadow_table_size < SHADOW_TABLE_ALLIGNED_MIN_SIZE) {
+
+    fprintf(stderr,
+            "WARN: __afl_shadow_table_size %zu too small. Did you set it "
+            "properly?\n",
+            __afl_shadow_table_size);
+
+  }
+
   if (id_str) {
 
 #ifdef USEMMAP
@@ -683,15 +692,15 @@ static void __afl_map_shm(void) {
 
 #endif
 
-    if (__afl_debug) {
+  }
 
-      fprintf(stderr,
-              "DEBUG: (3) id_str %s, __afl_shadow_table_ptr %p, "
-              "__afl_shadow_table_size %zu.\n",
-              id_str == NULL ? "<null>" : id_str, __afl_shadow_table_ptr,
-              __afl_shadow_table_size);
+  if (__afl_debug) {
 
-    }
+    fprintf(stderr,
+            "DEBUG: (3) id_str %s, __afl_shadow_table_ptr %p, "
+            "__afl_shadow_table_size %zu.\n",
+            id_str == NULL ? "<null>" : id_str, __afl_shadow_table_ptr,
+            __afl_shadow_table_size);
 
   }
 
