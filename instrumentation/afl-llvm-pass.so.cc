@@ -1154,12 +1154,21 @@ size_t AFLCoverage::instrumentIsel(Module &M) {
 
   }
 
+  return 0;
+
 }
 
 size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
 
   size_t ret = 0;
   if (M.getName().find("InstructionSelector") == StringRef::npos) { return 0; }
+  if (M.getName().find("llvm/lib/CodeGen/GlobalISel/InstructionSelector.cpp") !=
+      StringRef::npos) {
+
+    return 0;
+
+  }
+
   // Find table size.
   ReportMatcherTableSize(M,
                          "InstructionSelector13getMatchTableEvE11MatchTable0");
@@ -1169,14 +1178,26 @@ size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
   // `switch(MatcherOpcode)`, and back track to MatcherTable.
   for (Function &F : M) {
 
+    if (F.isDeclaration()) { continue; }
+    // Another heurestic that it should in a
+    // `<Arch>InstructionSelector::select(MachineInstr &I)`
+    if (F.getName().find("InstructionSelector6selectERN4llvm12MachineInstrE") ==
+        StringRef::npos) {
+
+      continue;
+
+    }
+
     for (BasicBlock &BB : F) {
 
       Instruction *Terminator = BB.getTerminator();
       if (SwitchInst *Switch = dyn_cast<SwitchInst>(Terminator)) {
 
-        // 62 types of MatcherOpcode. Check `InstructionSelector.h` for
-        // details.
-        if (Switch->getNumCases() == 62) {
+        // Check `InstructionSelector.h` for Opcode details.
+        /// TODO: This number needs to be updated according to the LLVM version
+        /// you ARE compiling, not the compiler's version. However, it's too
+        /// late to retrive enum number at IR stage, so has to be manual.
+        if (Switch->getNumCases() == 63) {
 
           // Condition is one of the Opcode that is taken out of the
           // MatchTable.
@@ -1204,6 +1225,8 @@ size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
 
   }
 
+  llvm_unreachable("Shouldn't be here. Did number cases set correctly?");
+
 }
 
 size_t AFLCoverage::instrumentMatcherTable(Module &M, Function &F,
@@ -1221,7 +1244,7 @@ size_t AFLCoverage::instrumentMatcherTable(Module &M, Function &F,
   IRBuilder<> Prelog_IRB(&*F.getEntryBlock().getFirstInsertionPt());
   LoadInst   *ShadowTablePtr = Prelog_IRB.CreateLoad(
 #if LLVM_VERSION_MAJOR >= 14
-      PointerType::get(Int8Ty, 0),
+      PointerType::get(UnitTy, 0),
 #endif
       AFLMatcherTblPtr);
   ShadowTablePtr->setMetadata(M.getMDKindID("nosanitize"),
