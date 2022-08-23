@@ -1179,14 +1179,6 @@ size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
   for (Function &F : M) {
 
     if (F.isDeclaration()) { continue; }
-    // Another heurestic that it should in a
-    // `<Arch>InstructionSelector::select(MachineInstr &I)`
-    if (F.getName().find("InstructionSelector6selectERN4llvm12MachineInstrE") ==
-        StringRef::npos) {
-
-      continue;
-
-    }
 
     for (BasicBlock &BB : F) {
 
