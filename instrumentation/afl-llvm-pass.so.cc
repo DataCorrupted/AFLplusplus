@@ -1162,6 +1162,7 @@ size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
 
   size_t ret = 0;
   if (M.getName().find("InstructionSelector") == StringRef::npos) { return 0; }
+  // This is the parent class of `InstructionSelector`, don't work on it.
   if (M.getName().find("llvm/lib/CodeGen/GlobalISel/InstructionSelector.cpp") !=
       StringRef::npos) {
 
@@ -1181,12 +1182,6 @@ size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
     if (F.isDeclaration()) { continue; }
     // Another heurestic that it should in a
     // `<Arch>InstructionSelector::select(MachineInstr &I)`
-    if (F.getName().find("InstructionSelector6selectERN4llvm12MachineInstrE") ==
-        StringRef::npos) {
-
-      continue;
-
-    }
 
     for (BasicBlock &BB : F) {
 
@@ -1194,9 +1189,10 @@ size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
       if (SwitchInst *Switch = dyn_cast<SwitchInst>(Terminator)) {
 
         // Check `InstructionSelector.h` for Opcode details.
-        /// TODO: This number needs to be updated according to the LLVM version
-        /// you ARE compiling, not the compiler's version. However, it's too
-        /// late to retrive enum number at IR stage, so has to be manual.
+        /// TODO: This number needs to be updated according to the LLVM
+        /// version you ARE compiling, not the compiler's version. However,
+        /// it's too late to retrive enum number at IR stage, so has to be
+        /// manual.
         if (Switch->getNumCases() == 63) {
 
           // Condition is one of the Opcode that is taken out of the
