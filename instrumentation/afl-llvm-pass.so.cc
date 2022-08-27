@@ -1129,10 +1129,8 @@ size_t AFLCoverage::instrumentIsel(Module &M) {
 
   if (M.getName().find("ISelDAGToDAG") != StringRef::npos) {
 
-    ReportMatcherTableSize(
-        M, "DAGToDAGISel10SelectCodeEPN4llvm6SDNodeEE12MatcherTable");
-    return 0;
-
+    ReportMatcherTableSize(M, "SDNodeEE12MatcherTable");
+     return 0;
   }
 
   if (M.getName().find("SelectionDAGISel") == StringRef::npos) { return 0; }
