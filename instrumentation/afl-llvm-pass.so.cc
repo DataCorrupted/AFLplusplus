@@ -1129,10 +1129,8 @@ size_t AFLCoverage::instrumentIsel(Module &M) {
 
   if (M.getName().find("ISelDAGToDAG") != StringRef::npos) {
 
-    ReportMatcherTableSize(
-        M, "DAGToDAGISel10SelectCodeEPN4llvm6SDNodeEE12MatcherTable");
-    return 0;
-
+    ReportMatcherTableSize(M, "SDNodeEE12MatcherTable");
+     return 0;
   }
 
   if (M.getName().find("SelectionDAGISel") == StringRef::npos) { return 0; }
@@ -1180,8 +1178,6 @@ size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
   for (Function &F : M) {
 
     if (F.isDeclaration()) { continue; }
-    // Another heurestic that it should in a
-    // `<Arch>InstructionSelector::select(MachineInstr &I)`
 
     for (BasicBlock &BB : F) {
 
