@@ -264,8 +264,8 @@ void write_stats_file(afl_state_t *afl, u32 t_bytes, double bitmap_cvg,
           "pending_favs      : %u\n"
           "pending_total     : %u\n"
           "stability         : %0.02f%%\n"
-          "bitmap_cvg        : %0.02f%%\n"
-          "shadow_cvg        : %0.02f%%\n"
+          "bitmap_cvg        : %0.03f%%\n"
+          "shadow_cvg        : %0.03f%%\n"
           "saved_crashes     : %llu\n"
           "saved_hangs       : %llu\n"
           "last_find         : %llu\n"
@@ -408,7 +408,7 @@ void maybe_update_plot_file(afl_state_t *afl, u32 t_bytes, double bitmap_cvg,
      execs_per_sec, edges_found */
 
   fprintf(afl->fsrv.plot_file,
-          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %0.02f%%, %llu, %llu, %u, "
+          "%llu, %llu, %u, %u, %u, %u, %0.03f%%, %0.03f%%, %llu, %llu, %u, "
           "%0.02f, %llu, %u\n",
           ((afl->prev_run_time + get_cur_time() - afl->start_time) / 1000),
           afl->queue_cycle - 1, afl->current_entry, afl->queued_items,
@@ -860,7 +860,7 @@ void show_stats_normal(afl_state_t *afl) {
   SAYF(bV bSTOP "  now processing : " cRST "%-18s " bSTG bV bSTOP, tmp);
 
   sprintf(
-      tmp, "%0.02f%% / %0.02f%%",
+      tmp, "%0.03f%% / %0.03f%%",
       // ((double)afl->queue_cur->bitmap_size) * 100 / afl->fsrv.real_map_size,
       t_byte_ratio, s_bit_ratio);
 
