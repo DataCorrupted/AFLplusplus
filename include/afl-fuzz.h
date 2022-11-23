@@ -1072,6 +1072,7 @@ u8 *describe_op(afl_state_t *, u8, size_t);
 u8 save_if_interesting(afl_state_t *, void *, u32, u8);
 u8 has_new_bits(afl_state_t *, u8 *);
 u8 has_new_bits_unclassified(afl_state_t *, u8 *);
+u8 cmp_and_merge_shadow_bits(u8 *new, u8 *global, u32 size);
 
 /* Extras */
 
