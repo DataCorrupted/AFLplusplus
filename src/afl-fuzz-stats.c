@@ -385,7 +385,7 @@ void maybe_update_plot_file(afl_state_t *afl, u32 t_bytes, double bitmap_cvg,
                  afl->plot_prev_md == afl->max_depth &&
                  afl->plot_prev_ed == afl->fsrv.total_execs) ||
                 !afl->queue_cycle ||
-                get_cur_time() - afl->start_time <= 60000))) {
+                get_cur_time() == afl->start_time))) {
 
     return;
 
