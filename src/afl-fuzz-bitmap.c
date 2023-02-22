@@ -25,39 +25,46 @@
 
 #include "afl-fuzz.h"
 #include <limits.h>
+#include <unistd.h>
 #if !defined NAME_MAX
   #define NAME_MAX _XOPEN_NAME_MAX
 #endif
 
-/* Write bitmap to file. The bitmap is useful mostly for the secret
-   -B option, to focus a separate fuzzing session on a particular
-   interesting input without rediscovering all the others. */
-
-void write_bitmap(afl_state_t *afl) {
+void write_bitmap(u8 *buf, u32 len, u8 *out_dir, u8 *name) {
 
   u8  fname[PATH_MAX];
   s32 fd;
 
+  snprintf(fname, PATH_MAX, "%s/fuzz_initial_%s", out_dir, name);
+
+  // if initial bitmap file already exists, write to current bitmap file
+  if (access(fname, F_OK) == 0) {
+    
+    snprintf(fname, PATH_MAX, "%s/fuzz_%s", out_dir, name);
+    
+  }
+
+  fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, DEFAULT_PERMISSION);
+
+  if (fd < 0) { PFATAL("Unable to open '%s'", fname); }
+
+  ck_write(fd, buf, len, fname);
+
+  close(fd);
+
+}
+
+/* Write bitmaps to file. The bitmap is useful mostly for the secret
+   -B option, to focus a separate fuzzing session on a particular
+   interesting input without rediscovering all the others. */
+
+void write_bitmaps(afl_state_t *afl) {
+
   if (!afl->bitmap_changed) { return; }
   afl->bitmap_changed = 0;
 
-  snprintf(fname, PATH_MAX, "%s/fuzz_bitmap", afl->out_dir);
-  fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, DEFAULT_PERMISSION);
-
-  if (fd < 0) { PFATAL("Unable to open '%s'", fname); }
-
-  ck_write(fd, afl->virgin_bits, afl->fsrv.map_size, fname);
-
-  close(fd);
-
-  snprintf(fname, PATH_MAX, "%s/fuzz_shadowmap", afl->out_dir);
-  fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, DEFAULT_PERMISSION);
-
-  if (fd < 0) { PFATAL("Unable to open '%s'", fname); }
-
-  ck_write(fd, afl->shadow_bits, afl->fsrv.shadow_size, fname);
-
-  close(fd);
+  write_bitmap(afl->virgin_bits, afl->fsrv.map_size, afl->out_dir, "bitmap");
+  write_bitmap(afl->shadow_bits, afl->fsrv.shadow_size, afl->out_dir, "shadowmap");
 
 }
 

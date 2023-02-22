@@ -2563,7 +2563,7 @@ stop_fuzzing:
 
   afl->force_ui_update = 1;  // ensure the screen is reprinted
   show_stats(afl);           // print the screen one last time
-  write_bitmap(afl);
+  write_bitmaps(afl);
   save_auto(afl);
 
   if (afl->afl_env.afl_pizza_mode) {
