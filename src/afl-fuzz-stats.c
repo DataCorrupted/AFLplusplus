@@ -593,7 +593,7 @@ void show_stats_normal(afl_state_t *afl) {
     write_stats_file(afl, t_bytes, t_byte_ratio, s_bit_ratio, stab_ratio,
                      afl->stats_avg_exec);
     save_auto(afl);
-    write_bitmap(afl);
+    write_bitmaps(afl);
 
   }
 
@@ -1381,7 +1381,7 @@ void show_stats_pizza(afl_state_t *afl) {
     write_stats_file(afl, t_bytes, t_byte_ratio, s_bit_ratio, stab_ratio,
                      afl->stats_avg_exec);
     save_auto(afl);
-    write_bitmap(afl);
+    write_bitmaps(afl);
 
   }
 

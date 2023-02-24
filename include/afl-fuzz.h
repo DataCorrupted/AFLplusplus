@@ -1052,7 +1052,7 @@ u32  calculate_score(afl_state_t *, struct queue_entry *);
 
 /* Bitmap */
 
-void write_bitmap(afl_state_t *);
+void write_bitmaps(afl_state_t *);
 u32  count_bits(afl_state_t *, u8 *);
 u32  count_shadow_bits(u8 *mem, u32 size);
 u32  count_bytes(afl_state_t *, u8 *);
