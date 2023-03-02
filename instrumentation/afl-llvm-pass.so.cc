@@ -1189,7 +1189,7 @@ size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
         /// version you ARE compiling, not the compiler's version. However,
         /// it's too late to retrive enum number at IR stage, so has to be
         /// manual.
-        if (Switch->getNumCases() == 63) {
+        if (Switch->getNumCases() == 65) {
 
           // Condition is one of the Opcode that is taken out of the
           // MatchTable.
