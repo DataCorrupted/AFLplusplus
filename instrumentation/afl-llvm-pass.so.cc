@@ -1158,7 +1158,6 @@ size_t AFLCoverage::instrumentIsel(Module &M) {
 
 size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
 
-  size_t ret = 0;
   if (M.getName().find("InstructionSelector") == StringRef::npos) { return 0; }
   // This is the parent class of `InstructionSelector`, don't work on it.
   if (M.getName().find("llvm/lib/CodeGen/GlobalISel/InstructionSelector.cpp") !=
@@ -1182,32 +1181,30 @@ size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
     for (BasicBlock &BB : F) {
 
       Instruction *Terminator = BB.getTerminator();
-      if (SwitchInst *Switch = dyn_cast<SwitchInst>(Terminator)) {
+      SwitchInst *Switch = dyn_cast<SwitchInst>(Terminator);
 
-        // Check `InstructionSelector.h` for Opcode details.
-        /// TODO: This number needs to be updated according to the LLVM
-        /// version you ARE compiling, not the compiler's version. However,
-        /// it's too late to retrive enum number at IR stage, so has to be
-        /// manual.
-        if (Switch->getNumCases() == 65) {
+      // Check `InstructionSelector.h` for Opcode details.
+      /// TODO: This number needs to be updated according to the LLVM
+      /// version you ARE compiling, not the compiler's version. However,
+      /// it's too late to retrive enum number at IR stage, so has to be
+      /// manual.
+      if (!Switch || Switch->getNumCases() != 66) { continue; }
 
-          // Condition is one of the Opcode that is taken out of the
-          // MatchTable.
-          Value *Condition = Switch->getCondition();
-          assert(Condition->getType() == Type::getInt64Ty(M.getContext()));
-          if (LoadInst *Load = dyn_cast<LoadInst>(Condition)) {
+      // Condition is one of the Opcode that is taken out of the
+      // MatchTable.
+      Value *Condition = Switch->getCondition();
 
-            Value *Addr = Load->getOperand(0);
-            if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(Addr)) {
+      if (!Condition->getType()->isIntegerTy(64)) { continue; }
 
-              Value *Table = GEP->getOperand(0);
-              size_t ret = instrumentMatcherTable(M, F, Table);
-              assert(ret);
-              return ret;
+      if (LoadInst *Load = dyn_cast<LoadInst>(Condition)) {
 
-            }
+        Value *Addr = Load->getOperand(0);
+        if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(Addr)) {
 
-          }
+          Value *Table = GEP->getOperand(0);
+          size_t ret = instrumentMatcherTable(M, F, Table);
+          assert(ret);
+          return ret;
 
         }
 
