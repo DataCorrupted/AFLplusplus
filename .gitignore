@@ -98,3 +98,5 @@ utils/persistent_mode/test-instr
 !coresight_mode
 !coresight_mode/coresight-trace
 vuln_prog
+.test-instr0-shadow.txt
+.test-instr1-shadow.txt
