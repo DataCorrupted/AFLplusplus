@@ -511,7 +511,7 @@
 #define MATCHER_TABLE_SIZE_ENV "MATCHER_TABLE_SIZE"
 #define MATCHER_TABLE_BITSIZE \
   atoi(getenv(MATCHER_TABLE_SIZE_ENV) ? getenv(MATCHER_TABLE_SIZE_ENV) : "256")
-#define SHADOW_TABLE_ALLIGNED_SIZE (((MATCHER_TABLE_BITSIZE + 7) >> 3) << 3)
+#define SHADOW_TABLE_ALLIGNED_SIZE (((MATCHER_TABLE_BITSIZE + 7) >> 3))
 // We can assume matcher table should be at least 1024 * 8 = 8192 long, since
 // most architecture are pretty complicated. If it is too small, chances are
 // that we forget to set the table size. We will raise a warning about it.
