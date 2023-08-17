@@ -1184,11 +1184,14 @@ size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
       SwitchInst *Switch = dyn_cast<SwitchInst>(Terminator);
 
       // Check `InstructionSelector.h` for Opcode details.
-      /// TODO: This number needs to be updated according to the LLVM
-      /// version you ARE compiling, not the compiler's version. However,
-      /// it's too late to retrive enum number at IR stage, so has to be
-      /// manual.
-      if (!Switch || Switch->getNumCases() != 66) { continue; }
+#if !defined(MATCHER_OPCODES_COUNT)
+  #error "MATCHER_OPCODES_COUNT should be defined"
+#else
+  #define XSTR(x) STR(x)
+  #define STR(x) #x
+  #pragma message "The value of MATCHER_OPCODES_COUNT: "  XSTR(MATCHER_OPCODES_COUNT)
+#endif
+      if (!Switch || Switch->getNumCases() != MATCHER_OPCODES_COUNT) { continue; }
 
       // Condition is one of the Opcode that is taken out of the
       // MatchTable.
