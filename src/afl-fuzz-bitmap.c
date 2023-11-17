@@ -248,7 +248,7 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
     Rw_message rw_msg;
 
     rw_msg.data_int[0] = afl->unique_id;
-	  rw_msg.data_int[1] = reward;
+    rw_msg.data_int[1] = reward;
     rw_msg.data_type = TYPE_REWARD;
     
     int snd_status = msgsnd(msqid, &rw_msg, sizeof(rw_msg.data_int), 0);
