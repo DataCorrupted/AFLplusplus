@@ -240,8 +240,8 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
     int       msqid;
 
     // Create or open the message queue
-    if ((msqid = msgget((key_t)4321, IPC_CREAT | 0666)) == -1) {
-
+    int msqid = msgget((key_t)4321, IPC_CREAT | 0666);
+    if (msqid == -1) {
       perror("msgget() failed");
       exit(1);
     }
@@ -252,8 +252,8 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
 	  rw_msg.data_int[1] = reward;
     rw_msg.data_type = TYPE_REWARD;
     
-    if (msgsnd(msqid, &rw_msg, sizeof(rw_msg.data_int), 0) == -1) {
-
+    int snd_status = msgsnd(msqid, &rw_msg, sizeof(rw_msg.data_int), 0);
+    if (snd_status == -1) {
       perror("msgsnd() failed");
       exit(1);
     }

@@ -34,7 +34,8 @@ my_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
   int        msqid;
 
   // Create or open the message queue
-  if ((msqid = msgget((key_t)1234, IPC_CREAT | 0666)) == -1) {
+  int msqid = msgget((key_t)1234, IPC_CREAT | 0666);
+  if (msqid == -1) {
     perror("msgget() failed");
     exit(1);
   }
@@ -42,7 +43,9 @@ my_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
   // send the request (empty message)
   memcpy(my_msg.data_buff, &msg, sizeof(int));
   my_msg.data_type = TYPE_REQUEST;
-  if (msgsnd(msqid, &my_msg, 0, 0) == -1) {
+
+  int snd_status = msgsnd(msqid, &my_msg, 0, 0);
+  if (snd_status == -1) {
     perror("msgsnd() failed");
     exit(1);
   }
@@ -50,13 +53,10 @@ my_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
   clock_t start_time;
   start_time = clock();
 
-  while (true) {
-    // if run time exceed 0.1s then break and mutate default one
-    if (difftime(clock(), start_time) >= 0.1) {
-      break;
-    }
-    
-    if (-1 == msgrcv(msqid, &my_msg, sizeof(My_message) - sizeof(long), 0, 0)) {
+  // if run time exceed 0.1s then break and mutate default one
+  while (difftime(clock(), start_time) >= 0.1) {
+    int rcv_status = msgrcv(msqid, &my_msg, sizeof(My_message) - sizeof(long), 0, 0);
+    if (rcv_status == -1 ) {
       perror("msgrcv() failed");
       exit(1);
     } 
