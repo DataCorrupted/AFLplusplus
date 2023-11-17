@@ -237,7 +237,6 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
   if (afl->from_llm){
     // Todo: calculate reward with all bitmap + new path
     u8        reward = ret;
-    int       msqid;
 
     // Create or open the message queue
     int msqid = msgget((key_t)4321, IPC_CREAT | 0666);

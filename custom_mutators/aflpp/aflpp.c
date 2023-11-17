@@ -31,7 +31,6 @@ my_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
   /* the mutation, send request to LLM, then receive mutate seed */
   My_message my_msg;
   int        msg = 200;
-  int        msqid;
 
   // Create or open the message queue
   int msqid = msgget((key_t)1234, IPC_CREAT | 0666);
