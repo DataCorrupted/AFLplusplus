@@ -63,7 +63,7 @@ my_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
       // receive non-empty seed(uid+seed)
       if (my_msg.data_type == TYPE_SEED){
         afl->from_llm =true;
-        afl->unique_id = my_msg.data_int;
+        afl->unique_id = my_msg.data_num;
         data->buf = my_msg.data_buff;
         data->buf_size = size(data->buf) <= MAX_FILE ? size(data->buf) : MAX_FILE;
       }
