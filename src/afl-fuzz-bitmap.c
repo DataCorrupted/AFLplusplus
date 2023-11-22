@@ -235,9 +235,19 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
   
   // If this seed is from LLM send reward to LLM
   if (afl->from_llm){
-    // Todo: calculate reward with all bitmap + new path
-    u8        reward = ret;
-
+    // Todo: calculate reward with all bitmap + new path before line 226
+    u8        reward=0;
+    // if (*current & *virgin) {
+    //   if (cur[0] && vir[0] == 0xff) reward++;
+    //   if (cur[1] && vir[1] == 0xff) reward++;
+    //   if (cur[2] && vir[2] == 0xff) reward++;
+    //   if (cur[3] && vir[3] == 0xff) reward++;
+    //   if (cur[4] && vir[4] == 0xff) reward++;
+    //   if (cur[5] && vir[5] == 0xff) reward++;
+    //   if (cur[6] && vir[6] == 0xff) reward++;
+    //   if (cur[7] && vir[7] == 0xff) reward++;
+    // }
+    reward = ret;
     // Create or open the message queue
     int msqid = msgget((key_t)4321, IPC_CREAT | 0666);
     if (msqid == -1) {
@@ -245,13 +255,13 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
       exit(1);
     }
     // send the uid, reward to LLM
-    Rw_message rw_msg;
+    message_reward_t rw_msg;
 
     rw_msg.data_num[0] = afl->unique_id;
     rw_msg.data_num[1] = reward;
     rw_msg.data_type = TYPE_REWARD;
     
-    int snd_status = msgsnd(msqid, &rw_msg, sizeof(rw_msg.data_int), 0);
+    int snd_status = msgsnd(msqid, &rw_msg, sizeof(rw_msg.data_num), 0);
     if (snd_status == -1) {
       perror("msgsnd() failed");
       exit(1);

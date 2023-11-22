@@ -153,12 +153,12 @@ typedef struct {
   long data_type;
   int  data_num;
   char data_buff[1024];
-} My_message;
+} message_seed_t;
 
 typedef struct {
   long data_type;
   int  data_num[2];
-} Rw_message;
+} message_reward_t;
 
 struct queue_entry {
 
