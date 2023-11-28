@@ -152,7 +152,7 @@ struct tainted {
 typedef struct {
   long data_type;
   int  data_num;
-  char data_buff[1024];
+  char data_buff[2048];
 } message_seed_t;
 
 typedef struct {
@@ -273,10 +273,10 @@ enum {
 
 };
 
-#define TYPE_REQUEST 1
-#define TYPE_REWARD 2
-#define TYPE_SEED 3
-#define TYPE_EMPTY_SEED 4
+#define TYPE_SEED 1
+#define TYPE_EMPTY_SEED 2
+#define TYPE_REWARD 3
+#define TYPE_REQUEST 4
 
 #define operator_num 19
 #define swarm_num 5
@@ -450,6 +450,7 @@ typedef struct afl_state {
   u32 _id;
 
   bool             from_llm;
+  int              unique_id;/* UNIQUE ID of the SEED*/
   afl_forkserver_t fsrv;
   sharedmem_t      shm;
   sharedmem_t     *shm_fuzz;
@@ -515,7 +516,6 @@ typedef struct afl_state {
       stats_update_freq;                /* Stats update frequency (execs)   */
 
   u8 havoc_stack_pow2,                  /* HAVOC_STACK_POW2                 */
-      unique_id,                        /* UNIQUE ID of the SEED            */
       no_unlink,                        /* do not unlink cur_input          */
       debug,                            /* Debug mode                       */
       custom_only,                      /* Custom mutator only mode         */
