@@ -208,6 +208,7 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
 
   u64 *current = (u64 *)afl->fsrv.trace_bits;
   u64 *virgin = (u64 *)virgin_map;
+  u64 *llm_vir = (u64 *)afl->llm_virgin_bits;
 
   u32 i = ((afl->fsrv.real_map_size + 7) >> 3);
 
@@ -215,25 +216,30 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
 
   u32 *current = (u32 *)afl->fsrv.trace_bits;
   u32 *virgin = (u32 *)virgin_map;
+  u32 *llm_vir = (u32 *)afl->llm_virgin_bits;
 
   u32 i = ((afl->fsrv.real_map_size + 3) >> 2);
 
 #endif                                                     /* ^WORD_SIZE_64 */
 
   u8 ret = 0;
-  int reward=0;
+  double reward=0;
   while (i--) {
-    u8 *cur = (u8 *)current;
-    u8 *vir = (u8 *)virgin;
-    if (*current & *virgin) {
-      if (unlikely(cur[0] && vir[0] == 0xff)) reward++;
-      if (unlikely(cur[1] && vir[1] == 0xff)) reward++;
-      if (unlikely(cur[2] && vir[2] == 0xff)) reward++;
-      if (unlikely(cur[3] && vir[3] == 0xff)) reward++;
-      if (unlikely(cur[4] && vir[4] == 0xff)) reward++;
-      if (unlikely(cur[5] && vir[5] == 0xff)) reward++;
-      if (unlikely(cur[6] && vir[6] == 0xff)) reward++;
-      if (unlikely(cur[7] && vir[7] == 0xff)) reward++;
+    if(afl->from_llm){
+      u8 iter = 8;
+      u8 *cur = (u8 *)current;
+      u8 *vir = (u8 *)llm_vir;
+      while(iter--){
+        if (cur[iter]){
+          if (vir[iter] == 0xff) // Find new path
+            reward+=1.5;
+          else if (vir[iter]>250) // 1/2 power (visited times + 2)
+            reward += 1.0 / (double)(1<<(256-(int)vir[iter]));
+          vir[iter] = (vir[iter] << 1) + (~vir[iter]);
+        }
+      }
+      // *llm_vir &=(~*current);
+      llm_vir++;
     }
 
     if (unlikely(*current)) discover_word(&ret, current, virgin);
@@ -248,9 +254,6 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
   
   // If this seed is from LLM send reward to LLM
   if (afl->from_llm){
-    // Todo: calculate reward with all bitmap + new path before line 226
-    printf("ret::rwd %d %d",ret,reward);
-    // reward = ret;
     // Create or open the message queue
     int msqid = msgget((key_t)4321, IPC_CREAT | 0666);
     if (msqid == -1) {
@@ -261,7 +264,10 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
     message_reward_t rw_msg;
 
     rw_msg.data_num[0] = afl->unique_id;
-    rw_msg.data_num[1] = reward;
+    if (ret > 0) reward=(reward+1)*2; // Extra bonus to find new path in all map
+    // else reward*=0.8;
+    printf("%d ret::rwd %d %f\n",afl->unique_id, ret,reward);
+    rw_msg.data_num[1] = (int)(reward*100);
     rw_msg.data_type = TYPE_REWARD;
     
     int snd_status = msgsnd(msqid, &rw_msg, sizeof(rw_msg.data_num), 0);
@@ -321,6 +327,18 @@ void minimize_bits(afl_state_t *afl, u8 *dst, u8 *src) {
 
   }
 
+}
+
+void printBuffer(u8 *out_buf, size_t size) {
+    if (out_buf == NULL) {
+        printf("Buffer is null.\n");
+        return;
+    }
+
+    for (size_t i = 0; i < size; i++) {
+        printf("%02x ", out_buf[i]);
+    }
+    printf("\n");
 }
 
 #ifndef SIMPLE_FILES
@@ -532,7 +550,6 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
        future fuzzing, etc. */
 
     if (likely(classified)) {
-
       new_bits = has_new_bits(afl, afl->virgin_bits);
 
     } else {

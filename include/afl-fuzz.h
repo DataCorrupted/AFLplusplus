@@ -561,7 +561,8 @@ typedef struct afl_state {
 
   u8 *virgin_bits,                      /* Regions yet untouched by fuzzing */
       *virgin_tmout,                    /* Bits we haven't seen in tmouts   */
-      *virgin_crash;                    /* Bits we haven't seen in crashes  */
+      *virgin_crash,                    /* Bits we haven't seen in crashes  */
+      *llm_virgin_bits;                 /* Bitmap to record traces for LLM  */
 
   double *alias_probability;            /* alias weighted probabilities     */
   u32    *alias_table;                /* alias weighted random lookup table */

@@ -1,0 +1,10 @@
+# environment variables:
+AFL_CUSTOM_MUTATOR_LIBRARY=custom_mutators/aflpp/aflpp-mutator.so
+AFL_CUSTOM_INFO_PROGRAM=/home/hxxzhang/libjpeg-turbo/build/djpeg
+AFL_CUSTOM_INFO_PROGRAM_ARGV=
+AFL_CUSTOM_INFO_OUT=./output/default
+AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1
+AFL_NO_UI=1
+AFL_SKIP_CPUFREQ=1
+# command line:
+'./afl-fuzz' '-i' './input_seeds' '-o' './output' '/home/hxxzhang/libjpeg-turbo/build/djpeg'

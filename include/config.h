@@ -453,6 +453,9 @@
   #define MAP_INITIAL_SIZE MAP_SIZE
 #endif
 
+/* Map size for traced binary */
+#define LLM_MAP_SIZE MAP_SIZE
+
 /* Maximum allocator request size (keep well under INT_MAX): */
 
 #define MAX_ALLOC 0x40000000

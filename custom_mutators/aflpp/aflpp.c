@@ -33,6 +33,18 @@ int hexCharToVal(char c) {
     return -1; // Invalid hex digit
 }
 
+void printBuffer(u8 **out_buf, size_t size) {
+    if (out_buf == NULL || *out_buf == NULL) {
+        printf("Buffer is null.\n");
+        return;
+    }
+
+    for (size_t i = 0; i < size; i++) {
+        printf("%02x ", (*out_buf)[i]);
+    }
+    printf("\n");
+}
+
 my_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
 
   srand(seed);
@@ -66,6 +78,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   if (size > max_size) size = max_size;
   
   data->afl->from_llm = false;
+  data->afl->unique_id = -1;
 
   /* the mutation, send request to LLM, then receive mutate seed */
   message_seed_t my_msg;
@@ -74,7 +87,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   // Create or open the message queue
   int msqid = msgget((key_t)1234, IPC_CREAT | 0666);
   if (msqid == -1) {
-    perror("msgget() failed");
+    printf("msgget() failed");
   }
   
   // send the request (empty message)
@@ -83,14 +96,14 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
 
   int snd_status = msgsnd(msqid, &my_msg, 0, 0);
   if (snd_status == -1) {
-    perror("request send failed");
+    printf("request send failed");
   }
   // receive seed info from llm
   clock_t start_time;
   start_time = clock();
 
   // if run time exceed 0.1s then break and mutate default one
-  while (((double)(clock() - start_time)) / CLOCKS_PER_SEC <= 10.1) {
+  while (((double)(clock() - start_time)) / CLOCKS_PER_SEC < 0.03) {
     int rcv_status = msgrcv(msqid, &my_msg, sizeof(message_seed_t) - sizeof(long), -2, 0);
 
     if (rcv_status == -1 ) {
@@ -99,8 +112,6 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
     } else {
       // receive non-empty seed(uid+seed)
       if (my_msg.data_type == TYPE_SEED){
-        printf("\n\nRECEIVE SEED %ld is: %s\n",strlen(my_msg.data_buff),my_msg.data_buff);
-
         size_t hexLength = strlen(my_msg.data_buff);
         size_t byteLength = hexLength / 2;
         if (MAX_FILE < byteLength) {
