@@ -264,9 +264,11 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
     message_reward_t rw_msg;
 
     rw_msg.data_num[0] = afl->unique_id;
-    if (ret > 0) reward=(reward+1)*2; // Extra bonus to find new path in all map
-    // else reward*=0.8;
-    printf("%d ret::rwd %d %f\n",afl->unique_id, ret,reward);
+    if (ret > 0) {
+      reward=(reward+1)*2; // Extra bonus to find new path in all map
+      // else reward*=0.8;
+      printf("%d ret::rwd %d %f\n",afl->unique_id, ret,reward);
+    }
     rw_msg.data_num[1] = (int)(reward*100);
     rw_msg.data_type = TYPE_REWARD;
     
@@ -329,17 +331,6 @@ void minimize_bits(afl_state_t *afl, u8 *dst, u8 *src) {
 
 }
 
-void printBuffer(u8 *out_buf, size_t size) {
-    if (out_buf == NULL) {
-        printf("Buffer is null.\n");
-        return;
-    }
-
-    for (size_t i = 0; i < size; i++) {
-        printf("%02x ", out_buf[i]);
-    }
-    printf("\n");
-}
 
 #ifndef SIMPLE_FILES
 
