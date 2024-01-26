@@ -103,7 +103,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   start_time = clock();
 
   // if run time exceed 0.1s then break and mutate default one
-  while (((double)(clock() - start_time)) / CLOCKS_PER_SEC < 0.03) {
+  while (((double)(clock() - start_time)) / CLOCKS_PER_SEC < 0.01) {
     int rcv_status = msgrcv(msqid, &my_msg, sizeof(message_seed_t) - sizeof(long), -2, 0);
 
     if (rcv_status == -1 ) {
