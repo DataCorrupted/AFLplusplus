@@ -1,4 +1,4 @@
-// This simple example just creates random buffer <= 100 filled with 'A'
+// Custom fuzzer to receive seeds from llm, if not received then just creates random buffer <= 100 filled with 'A'
 #include "afl-fuzz.h"
 
 #include <stdint.h>
@@ -11,7 +11,7 @@
 #include <time.h>
 
 #ifndef _FIXED_CHAR
-  #define _FIXED_CHAR 0x41
+  #define _FIXED_CHAR 0x41 // 0x41 is 'A' to fill into seeds buffer when there is no seeds from llm.
 #endif
 
 typedef struct my_mutator {
