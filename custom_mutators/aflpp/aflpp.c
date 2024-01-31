@@ -23,28 +23,6 @@ typedef struct my_mutator {
 
 } my_mutator_t;
 
-int hexCharToVal(char c) {
-    if (c >= '0' && c <= '9')
-        return c - '0';
-    if (c >= 'a' && c <= 'f')
-        return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F')
-        return c - 'A' + 10;
-    return -1; // Invalid hex digit
-}
-
-void printBuffer(u8 **out_buf, size_t size) {
-    if (out_buf == NULL || *out_buf == NULL) {
-        printf("Buffer is null.\n");
-        return;
-    }
-
-    for (size_t i = 0; i < size; i++) {
-        printf("%02x ", (*out_buf)[i]);
-    }
-    printf("\n");
-}
-
 my_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
 
   srand(seed);
@@ -113,22 +91,22 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
       // receive non-empty seed(uid+seed)
       if (my_msg.data_type == TYPE_SEED){
         size_t hexLength = strlen(my_msg.data_buff);
+        // makesure the hex string length is even, my_msg.data_buff has redundancies size
+        if (hexLength%2!=0) {
+          my_msg.data_buff[hexLength]='0';
+          my_msg.data_buff[hexLength+1]='\0';
+        }
+        hexLength = strlen(my_msg.data_buff);
         size_t byteLength = hexLength / 2;
         if (MAX_FILE < byteLength) {
           printf("Buffer size %ld is too small for the hex string %ld.\n",MAX_FILE,byteLength);
           break;
         }
-
+        char pair[3]; // init a tmp buffer to store hex pair
+        pair[2]='\0';
         for (size_t i = 0, j = 0; i < hexLength; i += 2, j++) {
-            int high = hexCharToVal(my_msg.data_buff[i]);
-            int low = hexCharToVal(my_msg.data_buff[i + 1]);
-
-            // Invalid hex section
-            if (high == -1 || low == -1) {
-                // printf("Invalid hex %c%c section\n", my_msg.data_buff[i],my_msg.data_buff[i+1]);
-                continue;
-            }
-            data->fuzz_buf[j] = (high << 4) | low;
+            strncpy(pair, &my_msg.data_buff[i], 2);
+            data->fuzz_buf[j] = strtol(pair, NULL, 16); // covert str to long. data->fuzz_buf[j] is an u8 but the convertion result is limited to 255 should be fine
         }
 
         data->afl->from_llm =true;
