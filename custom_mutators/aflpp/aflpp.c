@@ -104,8 +104,9 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
         char pair[3]; // init a tmp buffer to store hex pair
         pair[2]='\0';
         for (size_t i = 0, j = 0; i < hexLength; i += 2, j++) {
+            // covert str to long. data->fuzz_buf[j] is an u8 but the convertion result is limited to 255 should be fine
             strncpy(pair, &my_msg.data_buff[i], 2);
-            data->fuzz_buf[j] = strtol(pair, NULL, 16); // covert str to long. data->fuzz_buf[j] is an u8 but the convertion result is limited to 255 should be fine
+            data->fuzz_buf[j] = strtol(pair, NULL, 16); 
         }
 
         data->afl->from_llm =true;
