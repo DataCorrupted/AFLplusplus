@@ -149,6 +149,17 @@ struct tainted {
 
 };
 
+typedef struct {
+  long data_type;
+  int  data_num;
+  char data_buff[2048];
+} message_seed_t;
+
+typedef struct {
+  long data_type;
+  int  data_num[2];
+} message_reward_t;
+
 struct queue_entry {
 
   u8 *fname;                            /* File name for the test case      */
@@ -261,6 +272,11 @@ enum {
   /* 02 */ STAGE_VAL_BE
 
 };
+
+#define TYPE_SEED 1
+#define TYPE_EMPTY_SEED 2
+#define TYPE_REWARD 3
+#define TYPE_REQUEST 4
 
 #define operator_num 19
 #define swarm_num 5
@@ -434,6 +450,8 @@ typedef struct afl_state {
   /* Position of this state in the global states list */
   u32 _id;
 
+  bool             from_llm;
+  int              unique_id;/* UNIQUE ID of the SEED*/
   afl_forkserver_t fsrv;
   sharedmem_t      shm;
   sharedmem_t     *shm_fuzz;
@@ -544,7 +562,8 @@ typedef struct afl_state {
 
   u8 *virgin_bits,                      /* Regions yet untouched by fuzzing */
       *virgin_tmout,                    /* Bits we haven't seen in tmouts   */
-      *virgin_crash;                    /* Bits we haven't seen in crashes  */
+      *virgin_crash,                    /* Bits we haven't seen in crashes  */
+      *llm_virgin_bits;                 /* Bitmap to record traces for LLM  */
 
   double *alias_probability;            /* alias weighted probabilities     */
   u32    *alias_table;                /* alias weighted random lookup table */
