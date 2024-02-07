@@ -152,7 +152,7 @@ struct tainted {
 typedef struct {
   long data_type;
   int  data_num;
-  char data_buff[2048];
+  char data_buff[4096];
 } message_seed_t;
 
 typedef struct {

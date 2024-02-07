@@ -57,25 +57,31 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   data->afl->from_llm = false;
   data->afl->unique_id = -1;
 
-  /* the mutation, send request to LLM, then receive mutate seed */
+  /* the mutation, send request to LLM, then receive mutate seed 
+     my_msg.data_buff max size 2048
+  */
   message_seed_t my_msg;
 
-  for (size_t i=0;i<buf_size/sizeof(buf[0]);++i){
-    snprintf(my_msg.data_buff+2*i,"%02x", buf[i]);
-  }
-  my_msg.data_buff[2*(buf_size/sizeof(buf[0]))]='\0';
-
+  
   // Create or open the message queue
   int msqid = msgget((key_t)1234, IPC_CREAT | 0666);
   if (msqid == -1) {
     printf("msgget() failed");
   }
   
-  // send the request (empty message)
+  // send the request with seed from fuzzer
   my_msg.data_type = TYPE_REQUEST;
+  if (buf_size/sizeof(buf[0])*2+1<4096){
+    for (size_t i=0;i<buf_size/sizeof(buf[0]);++i){
+      snprintf(my_msg.data_buff+2*i,"%02x", buf[i]);
+    }
+    my_msg.data_buff[2*(buf_size/sizeof(buf[0]))]='\0';
+    int snd_status = msgsnd(msqid, &my_msg, buf_size+sizeof('\0'), 0);
+  }
+  else{
+    int snd_status = msgsnd(msqid, &my_msg, 0, 0);
+  }
 
-  int snd_status = msgsnd(msqid, &my_msg, buf_size+sizeof('\0'), 0);
-  
   if (snd_status == -1) {
     printf("request send failed");
   }
