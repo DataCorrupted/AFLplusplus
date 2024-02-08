@@ -61,7 +61,6 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
      my_msg.data_buff max size 2048
   */
   message_seed_t my_msg,fuzzer_seed;
-
   
   // Create or open the message queue
   int msqid = msgget((key_t)1234, IPC_CREAT | 0666);
@@ -81,7 +80,11 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
     snd_status = msgsnd(msqid, &fuzzer_seed, sizeof(fuzzer_seed.data_buff), 0);
   }
   else{
-    snd_status = msgsnd(msqid, &fuzzer_seed, sizeof(int), 0);
+    fuzzer_seed.data_buff[0] = 'f';
+    fuzzer_seed.data_buff[1] = 'f';
+    fuzzer_seed.data_buff[2] = '\0';
+    printf("fuzzer seed::: %s",fuzzer_seed.data_buff);
+    snd_status = msgsnd(msqid, &fuzzer_seed, sizeof(fuzzer_seed.data_buff), 0);
   }
   memset(fuzzer_seed.data_buff, '\0', sizeof(fuzzer_seed.data_buff));
 
