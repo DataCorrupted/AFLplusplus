@@ -84,7 +84,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   // send the request with seed from fuzzer
   my_msg.data_type = TYPE_REQUEST;
   int snd_status;
-  print("HERE I AM")
+  print("HERE I AM");
   printBuffer(buf,buf_size);
   if (buf_size*2+1<=4000){
     for (size_t i=0;i<buf_size;i++){
