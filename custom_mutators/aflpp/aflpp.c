@@ -47,18 +47,6 @@ my_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
 
 }
 
-void printBuffer(u8 **out_buf, size_t size) {
-    if (out_buf == NULL || *out_buf == NULL) {
-        printf("Buffer is null.\n");
-        return;
-    }
-
-    for (size_t i = 0; i < size; i++) {
-        printf("%02x ", (*out_buf)[i]);
-    }
-    printf("\n");
-}
-
 size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
                        u8 **out_buf, uint8_t *add_buf,
                        size_t add_buf_size,  // add_buf can be NULL
@@ -85,7 +73,6 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   my_msg.data_type = TYPE_REQUEST;
   int snd_status;
   printf("HERE I AM");
-  printBuffer(buf,buf_size);
   if (buf_size*2+1<=4000){
     // memset(my_msg.data_buff, buf, buf_size);
     snd_status = msgsnd(msqid, &my_msg, 0, 0);
