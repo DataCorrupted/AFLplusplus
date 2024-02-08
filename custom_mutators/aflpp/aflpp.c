@@ -71,21 +71,27 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   // send the request with seed from fuzzer
   fuzzer_seed.data_type = TYPE_REQUEST;
   int snd_status;
-  if (buf_size*2+1<=2048){
-    for (size_t i=0; i< buf_size;i++){
-      sprintf(fuzzer_seed.data_buff + (i * 2), "%02X", buf[i]);
-    }
-    fuzzer_seed.data_buff[2*buf_size] = '\0';
-    printf("fuzzer seed::: %s",fuzzer_seed.data_buff);
-    snd_status = msgsnd(msqid, &fuzzer_seed, sizeof(fuzzer_seed.data_buff), 0);
-  }
-  else{
-    fuzzer_seed.data_buff[0] = 'f';
-    fuzzer_seed.data_buff[1] = 'f';
-    fuzzer_seed.data_buff[2] = '\0';
-    printf("fuzzer seed::: %s",fuzzer_seed.data_buff);
-    snd_status = msgsnd(msqid, &fuzzer_seed, sizeof(fuzzer_seed.data_buff), 0);
-  }
+  fuzzer_seed.data_buff[0] = 'f';
+  fuzzer_seed.data_buff[1] = 'f';
+  fuzzer_seed.data_buff[2] = '\0';
+  printf("fuzzer seed::: %s",fuzzer_seed.data_buff);
+  snd_status = msgsnd(msqid, &fuzzer_seed, sizeof(fuzzer_seed.data_buff), 0);
+
+  // if (buf_size*2+1<=2048){
+  //   for (size_t i=0; i< buf_size;i++){
+  //     sprintf(fuzzer_seed.data_buff + (i * 2), "%02X", buf[i]);
+  //   }
+  //   fuzzer_seed.data_buff[2*buf_size] = '\0';
+  //   printf("fuzzer seed::: %s",fuzzer_seed.data_buff);
+  //   snd_status = msgsnd(msqid, &fuzzer_seed, sizeof(fuzzer_seed.data_buff), 0);
+  // }
+  // else{
+  //   fuzzer_seed.data_buff[0] = 'f';
+  //   fuzzer_seed.data_buff[1] = 'f';
+  //   fuzzer_seed.data_buff[2] = '\0';
+  //   printf("fuzzer seed::: %s",fuzzer_seed.data_buff);
+  //   snd_status = msgsnd(msqid, &fuzzer_seed, sizeof(fuzzer_seed.data_buff), 0);
+  // }
   memset(fuzzer_seed.data_buff, '\0', sizeof(fuzzer_seed.data_buff));
 
   if (snd_status == -1) {
