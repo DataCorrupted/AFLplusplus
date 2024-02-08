@@ -73,7 +73,10 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   int snd_status;
 
   if (buf_size*2+1<=2048){
+    printf("buf_size::: %d  \n",buf_size);
+
     for (size_t i=0; i< buf_size;i++){
+      printf("%02X", buf[i]);
       sprintf(fuzzer_seed.data_buff + (i * 2), "%02X", buf[i]);
     }
     fuzzer_seed.data_buff[2*buf_size] = '\0';
