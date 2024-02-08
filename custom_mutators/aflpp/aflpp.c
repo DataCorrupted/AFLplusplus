@@ -1,4 +1,4 @@
-// Custom fuzzer to receive seeds from llm, if not received then just creates random buffer <= 100 filled with 'A'
+// Custom fuzzer to receive seeds from llm, if not received then send input seed back.
 #include "afl-fuzz.h"
 
 #include <stdint.h>
@@ -72,7 +72,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   fuzzer_seed.data_type = TYPE_REQUEST;
   int snd_status;
 
-  if (buf_size*2+1<=3696){
+  if (buf_size*2+1<=3000){
     for (size_t i=0; i< buf_size;i++){
       sprintf(fuzzer_seed.data_buff + (i * 2), "%02X", buf[i]);
     }
@@ -132,7 +132,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   }
 
   if (!data->afl->from_llm){
-     memset(data->fuzz_buf, _FIXED_CHAR, size);
+     memset(data->fuzz_buf, buf, buf_size);
   }
   *out_buf = data->fuzz_buf;
   return size;
