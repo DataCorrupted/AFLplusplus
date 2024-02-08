@@ -81,7 +81,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
     snd_status = msgsnd(msqid, &fuzzer_seed, sizeof(fuzzer_seed.data_buff), 0);
   }
   else{
-    snd_status = msgsnd(msqid, &fuzzer_seed, 0, 0);
+    snd_status = msgsnd(msqid, &fuzzer_seed, sizeof(int), 0);
   }
   memset(fuzzer_seed.data_buff, '\0', sizeof(fuzzer_seed.data_buff));
 
