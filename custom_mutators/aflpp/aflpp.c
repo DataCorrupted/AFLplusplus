@@ -71,11 +71,9 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   // send the request with seed from fuzzer
   fuzzer_seed.data_type = TYPE_REQUEST;
   int snd_status;
-  fuzzer_seed.data_buff[0] = 'f';
-  fuzzer_seed.data_buff[1] = 'f';
-  fuzzer_seed.data_buff[2] = '\0';
+  memset(fuzzer_seed.data_buff, 'f', sizeof(fuzzer_seed.data_buff));
   printf("fuzzer seed::: %s %d\n",fuzzer_seed.data_buff,sizeof(fuzzer_seed.data_buff));
-  snd_status = msgsnd(msqid, &fuzzer_seed, 0, 0);
+  snd_status = msgsnd(msqid, &fuzzer_seed, 4000, 0);
 
   // if (buf_size*2+1<=2048){
   //   for (size_t i=0; i< buf_size;i++){
