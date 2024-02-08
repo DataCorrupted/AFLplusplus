@@ -72,7 +72,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   fuzzer_seed.data_type = TYPE_REQUEST;
   int snd_status;
 
-  if (buf_size*2+1<=4096){
+  if (buf_size*2+1<=3096){
 
     for (size_t i=0; i< buf_size;i++){
       printf("%02X", buf[i]);
@@ -80,7 +80,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
     }
     fuzzer_seed.data_buff[2*buf_size] = '\0';
     printf("fuzzer %d seed::: %s \n",buf_size, fuzzer_seed.data_buff);
-    snd_status = msgsnd(msqid, &fuzzer_seed, 2000, 0);
+    snd_status = msgsnd(msqid, &fuzzer_seed, buf_size*2+1, 0);
   }
   else{
     snd_status = msgsnd(msqid, &fuzzer_seed, 0, 0);
