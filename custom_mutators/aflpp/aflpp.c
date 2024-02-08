@@ -60,7 +60,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   /* the mutation, send request to LLM, then receive mutate seed 
      my_msg.data_buff max size 2048
   */
-  message_seed_t my_msg;
+  message_seed_t my_msg,fuzzer_seed;
 
   
   // Create or open the message queue
@@ -70,21 +70,20 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   }
   
   // send the request with seed from fuzzer
-  my_msg.data_type = TYPE_REQUEST;
+  fuzzer_seed.data_type = TYPE_REQUEST;
   int snd_status;
-  if (buf_size*2+1<=4096){
+  if (buf_size*2+1<=4090){
     for (size_t i=0; i< buf_size;i++){
-      printf("%02X", buf[i]);
-      sprintf(my_msg.data_buff + (i * 2), "%02X", buf[i]);
+      sprintf(fuzzer_seed.data_buff + (i * 2), "%02X", buf[i]);
     }
-    my_msg.data_buff[2*buf_size] = '\0';
-    printf("fuzzer seed::: %s",my_msg.data_buff);
-    snd_status = msgsnd(msqid, &my_msg, sizeof(my_msg.data_buff), 0);
+    fuzzer_seed.data_buff[2*buf_size] = '\0';
+    printf("fuzzer seed::: %s",fuzzer_seed.data_buff);
+    snd_status = msgsnd(msqid, &fuzzer_seed, sizeof(fuzzer_seed.data_buff), 0);
   }
   else{
-    printf("fuzzer seed::: empty");
-    snd_status = msgsnd(msqid, &my_msg, 0, 0);
+    snd_status = msgsnd(msqid, &fuzzer_seed, 0, 0);
   }
+  memset(fuzzer_seed.data_buff, '\0', sizeof(fuzzer_seed.data_buff));
 
   if (snd_status == -1) {
     printf("request send failed");
