@@ -72,13 +72,13 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   // send the request with seed from fuzzer
   my_msg.data_type = TYPE_REQUEST;
   int snd_status;
-  if ( buf_size*2+1<=4096){
+  if ( buf_size*2+1<=4000){
     for (size_t i=0;i<buf_size;i++){
       snprintf(my_msg.data_buff+(2*i),"%02x", buf[i]);
     }
     my_msg.data_buff[2*buf_size]='\0';
-    
-    snd_status = msgsnd(msqid, &my_msg, buf_size+sizeof('\0'), 0);
+
+    snd_status = msgsnd(msqid, &my_msg, sizeof(my_msg.data_buff), 0);
   }
   else{
     snd_status = msgsnd(msqid, &my_msg, 0, 0);
