@@ -76,7 +76,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
     for (size_t i=0; i< buf_size;i++){
       sprintf(fuzzer_seed.data_buff + (i * 2), "%02X", buf[i]);
     }
-    printf("fuzzer %d seed::: %s \n",buf_size, fuzzer_seed.data_buff);
+    // printf("fuzzer %d seed::: %s \n",buf_size, fuzzer_seed.data_buff);
     snd_status = msgsnd(msqid, &fuzzer_seed, buf_size*2+4, 0);
   }
   else{
