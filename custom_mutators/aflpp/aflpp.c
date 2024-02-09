@@ -102,17 +102,15 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
       // receive non-empty seed(uid+seed)
       if (my_msg.data_type == TYPE_SEED){
         size_t hexLength = strlen(my_msg.data_buff);
-        // makesure the hex string length is even, my_msg.data_buff has redundancies size
+        // hex string length is even, my_msg.data_buff has redundancies size
         if (hexLength%2!=0) {
           my_msg.data_buff[hexLength]='0';
           my_msg.data_buff[hexLength+1]='\0';
         }
-        hexLength = strlen(my_msg.data_buff);
+        // mutated seed length must less than max size
+        hexLength = strlen(my_msg.data_buff)<=2*max_size ? strlen(my_msg.data_buff) : 2*max_size;
         size_t byteLength = hexLength / 2;
-        if (MAX_FILE < byteLength) {
-          printf("Buffer size %ld is too small for the hex string %ld.\n",MAX_FILE,byteLength);
-          break;
-        }
+        
         char pair[3]; // init a tmp buffer to store hex pair
         pair[2]='\0';
         for (size_t i = 0, j = 0; i < hexLength; i += 2, j++) {
@@ -133,6 +131,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
 
   if (!data->afl->from_llm){
     size = buf_size - size > 0 ? buf_size - size : buf_size; //randomly chunk
+    size = size <max_size ? size : max_size; // mutated seed length must less than max size
     memset(data->fuzz_buf, buf, size);
   }
   *out_buf = data->fuzz_buf;
