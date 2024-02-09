@@ -1,4 +1,4 @@
-// Custom fuzzer to receive seeds from llm, if not received then send input seed back.
+// Custom fuzzer to receive seeds from llm, if not received then randomly chunk the given seed and seed back.
 #include "afl-fuzz.h"
 
 #include <stdint.h>
@@ -51,7 +51,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
                        u8 **out_buf, uint8_t *add_buf,
                        size_t add_buf_size,  // add_buf can be NULL
                        size_t max_size) {
-  // rand here is not important. this size only be used when did't receive llm seeds, use default seed 'AAAA...'
+  // rand here is not important. this size only be used when did't receive llm seeds, randomly chunk the given seed
   int size = (rand() % 100) + 1;
   
   data->afl->from_llm = false;
@@ -92,7 +92,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   start_time = clock();
 
   // if run time exceed 0.1s then break and mutate default one
-  while (((double)(clock() - start_time)) / CLOCKS_PER_SEC < 0.01) {
+  while (((double)(clock() - start_time)) / CLOCKS_PER_SEC < 0.005) {
     int rcv_status = msgrcv(msqid, &my_msg, sizeof(message_seed_t) - sizeof(long), -2, 0);
 
     if (rcv_status == -1 ) {
@@ -132,7 +132,8 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   }
 
   if (!data->afl->from_llm){
-     memset(data->fuzz_buf, buf, buf_size);
+    size = buf_size - size > 0 ? buf_size - size : buf_size; //randomly chunk
+    memset(data->fuzz_buf, buf, size);
   }
   *out_buf = data->fuzz_buf;
   return size;
