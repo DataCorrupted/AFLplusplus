@@ -1,6 +1,5 @@
 // Custom fuzzer to receive seeds from llm, if not received then randomly chunk the given seed and seed back.
 #include "afl-fuzz.h"
-
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,10 +8,6 @@
 #include <sys/ipc.h>
 #include <sys/msg.h>
 #include <time.h>
-
-#ifndef _FIXED_CHAR
-  #define _FIXED_CHAR 0x41 // 0x41 is 'A' to fill into seeds buffer when there is no seeds from llm.
-#endif
 
 typedef struct my_mutator {
 
@@ -87,46 +82,38 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
     printf("request send failed");
   }
   // receive seed info from llm
-  clock_t start_time;
-  start_time = clock();
+  int rcv_status = msgrcv(msqid, &my_msg, sizeof(message_seed_t) - sizeof(long), -2, 0);
 
-  // if run time exceed 0.1s then break and mutate default one
-  // while (((double)(clock() - start_time)) / CLOCKS_PER_SEC < 0.005) {
-    int rcv_status = msgrcv(msqid, &my_msg, sizeof(message_seed_t) - sizeof(long), -2, 0);
-
-    if (rcv_status == -1 ) {
-      printf("RECEIVE ERROR %d \n",rcv_status);
-      // break;
-    } else {
-      // receive non-empty seed(uid+seed)
-      if (my_msg.data_type == TYPE_SEED){
-        size_t hexLength = strlen(my_msg.data_buff);
-        // hex string length is even, my_msg.data_buff has redundancies size
-        if (hexLength%2!=0) {
-          my_msg.data_buff[hexLength]='0';
-          my_msg.data_buff[hexLength+1]='\0';
-        }
-        // mutated seed length must less than max size
-        hexLength = strlen(my_msg.data_buff)<=2*max_size ? strlen(my_msg.data_buff) : 2*max_size;
-        size_t byteLength = hexLength / 2;
-        
-        char pair[3]; // init a tmp buffer to store hex pair
-        pair[2]='\0';
-        for (size_t i = 0, j = 0; i < hexLength; i += 2, j++) {
-            // covert str to long. data->fuzz_buf[j] is an u8 but the convertion result is limited to 255 should be fine
-            strncpy(pair, &my_msg.data_buff[i], 2);
-            data->fuzz_buf[j] = strtol(pair, NULL, 16); 
-        }
-
-        data->afl->from_llm =true;
-        data->afl->unique_id = my_msg.data_num;
-        // clear the buffer, update size
-        memset(my_msg.data_buff, '\0', sizeof(my_msg.data_buff));
-        size = byteLength;
+  if (rcv_status == -1 ) {
+    printf("RECEIVE ERROR %d \n",rcv_status);
+  } else {
+    // receive non-empty seed(uid+seed)
+    if (my_msg.data_type == TYPE_SEED){
+      size_t hexLength = strlen(my_msg.data_buff);
+      // hex string length is even, my_msg.data_buff has redundancies size
+      if (hexLength%2!=0) {
+        my_msg.data_buff[hexLength]='0';
+        my_msg.data_buff[hexLength+1]='\0';
       }
-      // break;
+      // mutated seed length must less than max size
+      hexLength = strlen(my_msg.data_buff)<=2*max_size ? strlen(my_msg.data_buff) : 2*max_size;
+      size_t byteLength = hexLength / 2;
+      
+      char pair[3]; // init a tmp buffer to store hex pair
+      pair[2]='\0';
+      for (size_t i = 0, j = 0; i < hexLength; i += 2, j++) {
+          // covert str to long. data->fuzz_buf[j] is an u8 but the convertion result is limited to 255 should be fine
+          strncpy(pair, &my_msg.data_buff[i], 2);
+          data->fuzz_buf[j] = strtol(pair, NULL, 16); 
+      }
+
+      data->afl->from_llm =true;
+      data->afl->unique_id = my_msg.data_num;
+      // clear the buffer, update size
+      memset(my_msg.data_buff, '\0', sizeof(my_msg.data_buff));
+      size = byteLength;
     }
-  // }
+  }
 
   if (!data->afl->from_llm){
     size = buf_size - size > 0 ? buf_size - size : buf_size; //randomly chunk
@@ -135,7 +122,6 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   }
   *out_buf = data->fuzz_buf;
   return size;
-
 }
 
 /**
