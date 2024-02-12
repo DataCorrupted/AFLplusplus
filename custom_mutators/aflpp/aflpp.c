@@ -71,12 +71,11 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   // send the request with seed from fuzzer
   fuzzer_seed.data_type = TYPE_REQUEST;
   int snd_status;
-
+  // message size is limited to 2048
   if (buf_size*2+1<=2040){
     for (size_t i=0; i< buf_size;i++){
       sprintf(fuzzer_seed.data_buff + (i * 2), "%02X", buf[i]);
     }
-    // printf("fuzzer %d seed::: %s \n",buf_size, fuzzer_seed.data_buff);
     snd_status = msgsnd(msqid, &fuzzer_seed, buf_size*2+4, 0);
   }
   else{
@@ -92,7 +91,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   start_time = clock();
 
   // if run time exceed 0.1s then break and mutate default one
-  while (((double)(clock() - start_time)) / CLOCKS_PER_SEC < 0.005) {
+  // while (((double)(clock() - start_time)) / CLOCKS_PER_SEC < 0.005) {
     int rcv_status = msgrcv(msqid, &my_msg, sizeof(message_seed_t) - sizeof(long), -2, 0);
 
     if (rcv_status == -1 ) {
@@ -127,7 +126,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
       }
       break;
     }
-  }
+  // }
 
   if (!data->afl->from_llm){
     size = buf_size - size > 0 ? buf_size - size : buf_size; //randomly chunk
