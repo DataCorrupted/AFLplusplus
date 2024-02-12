@@ -96,7 +96,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
 
     if (rcv_status == -1 ) {
       printf("RECEIVE ERROR %d \n",rcv_status);
-      break;
+      // break;
     } else {
       // receive non-empty seed(uid+seed)
       if (my_msg.data_type == TYPE_SEED){
