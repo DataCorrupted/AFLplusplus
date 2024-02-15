@@ -223,24 +223,23 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
 #endif                                                     /* ^WORD_SIZE_64 */
 
   u8 ret = 0;
-  double reward=0;
+  // double reward=0;
   while (i--) {
-    if(afl->from_llm){
-      u8 iter = 8;
-      u8 *cur = (u8 *)current;
-      u8 *vir = (u8 *)llm_vir;
-      while(iter--){
-        if (cur[iter]){
-          if (vir[iter] == 0xff) // Find new path
-            reward+=1.5;
-          else if (vir[iter]>250) // 1/2 power (visited times + 2)
-            reward += 1.0 / (double)(1<<(256-(int)vir[iter]));
-          vir[iter] = (vir[iter] << 1) + (~vir[iter]);
-        }
-      }
-      // *llm_vir &=(~*current);
-      llm_vir++;
-    }
+    // if(afl->from_llm){
+    //   u8 iter = 8;
+    //   u8 *cur = (u8 *)current;
+    //   u8 *vir = (u8 *)llm_vir;
+    //   while(iter--){
+    //     if (cur[iter]){
+    //       if (vir[iter] == 0xff) // Find new path
+    //         reward+=1.5;
+    //       else if (vir[iter]>250) // 1/2 power (visited times + 2)
+    //         reward += 1.0 / (double)(1<<(256-(int)vir[iter]));
+    //       vir[iter] = (vir[iter] << 1) + (~vir[iter]);
+    //     }
+    //   }
+    //   llm_vir++;
+    // }
 
     if (unlikely(*current)) discover_word(&ret, current, virgin);
 
@@ -264,7 +263,8 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
     message_reward_t rw_msg;
 
     rw_msg.data_num[0] = afl->unique_id;
-    if (ret > 0) reward=(reward+1)*2; // Extra bonus to find new path in all map
+    double reward = 0.0;
+    if (ret > 0) reward=2.0; //reward=(reward+1)*2; // Extra bonus to find new path in all map
     // else reward*=0.8;
     printf("%d ret::rwd %d %f\n",afl->unique_id, ret,reward);
     rw_msg.data_num[1] = (int)(reward*100);
