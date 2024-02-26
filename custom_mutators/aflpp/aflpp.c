@@ -109,7 +109,6 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
     // clear the buffer, update size
     memset(my_msg.data_buff, '\0', sizeof(my_msg.data_buff));
     size = byteLength;
-    printf("receive:::");
   }
   else {
     size = buf_size - size > 0 ? buf_size - size : buf_size; //randomly chunk
