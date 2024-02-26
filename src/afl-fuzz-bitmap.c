@@ -254,11 +254,11 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
   // If this seed is from LLM send reward to LLM
   if (afl->from_llm){
     // Create or open the message queue
-    int msqid = msgget((key_t)4321, IPC_CREAT | 0666);
-    if (msqid == -1) {
-      perror("msgget() failed");
-      exit(1);
-    }
+    // int msqid = msgget((key_t)4321, IPC_CREAT | 0666);
+    // if (msqid == -1) {
+    //   perror("msgget() failed");
+    //   exit(1);
+    // }
     // send the uid, reward to LLM
     message_reward_t rw_msg;
 
@@ -270,12 +270,12 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
     rw_msg.data_num[1] = (int)(reward*100);
     rw_msg.data_type = TYPE_REWARD;
     
-    int snd_status = msgsnd(msqid, &rw_msg, sizeof(rw_msg.data_num), 0);
-    if (snd_status == -1) {
-      printf("send rewards ERROR\n");
-      perror("msgsnd() failed");
-      exit(1);
-    }
+    // int snd_status = msgsnd(msqid, &rw_msg, sizeof(rw_msg.data_num), 0);
+    // if (snd_status == -1) {
+    //   printf("send rewards ERROR\n");
+    //   perror("msgsnd() failed");
+    //   exit(1);
+    // }
   }
   return ret;
 
