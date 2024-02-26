@@ -271,30 +271,28 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
           isStrcmp &=
               FT->getNumParams() == 2 && FT->getReturnType()->isIntegerTy(32) &&
               FT->getParamType(0) == FT->getParamType(1) &&
-              FT->getParamType(0) ==
-                  IntegerType::getInt8Ty(M.getContext())->getPointerTo(0);
+              FT->getParamType(0) == IntegerType::getInt8PtrTy(M.getContext());
           isStrcasecmp &=
               FT->getNumParams() == 2 && FT->getReturnType()->isIntegerTy(32) &&
               FT->getParamType(0) == FT->getParamType(1) &&
-              FT->getParamType(0) ==
-                  IntegerType::getInt8Ty(M.getContext())->getPointerTo(0);
+              FT->getParamType(0) == IntegerType::getInt8PtrTy(M.getContext());
           isMemcmp &= FT->getNumParams() == 3 &&
                       FT->getReturnType()->isIntegerTy(32) &&
                       FT->getParamType(0)->isPointerTy() &&
                       FT->getParamType(1)->isPointerTy() &&
                       FT->getParamType(2)->isIntegerTy();
-          isStrncmp &=
-              FT->getNumParams() == 3 && FT->getReturnType()->isIntegerTy(32) &&
-              FT->getParamType(0) == FT->getParamType(1) &&
-              FT->getParamType(0) ==
-                  IntegerType::getInt8Ty(M.getContext())->getPointerTo(0) &&
-              FT->getParamType(2)->isIntegerTy();
-          isStrncasecmp &=
-              FT->getNumParams() == 3 && FT->getReturnType()->isIntegerTy(32) &&
-              FT->getParamType(0) == FT->getParamType(1) &&
-              FT->getParamType(0) ==
-                  IntegerType::getInt8Ty(M.getContext())->getPointerTo(0) &&
-              FT->getParamType(2)->isIntegerTy();
+          isStrncmp &= FT->getNumParams() == 3 &&
+                       FT->getReturnType()->isIntegerTy(32) &&
+                       FT->getParamType(0) == FT->getParamType(1) &&
+                       FT->getParamType(0) ==
+                           IntegerType::getInt8PtrTy(M.getContext()) &&
+                       FT->getParamType(2)->isIntegerTy();
+          isStrncasecmp &= FT->getNumParams() == 3 &&
+                           FT->getReturnType()->isIntegerTy(32) &&
+                           FT->getParamType(0) == FT->getParamType(1) &&
+                           FT->getParamType(0) ==
+                               IntegerType::getInt8PtrTy(M.getContext()) &&
+                           FT->getParamType(2)->isIntegerTy();
 
           if (!isStrcmp && !isMemcmp && !isStrncmp && !isStrcasecmp &&
               !isStrncasecmp && !isIntMemcpy)

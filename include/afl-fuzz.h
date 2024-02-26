@@ -149,6 +149,17 @@ struct tainted {
 
 };
 
+typedef struct {
+  long data_type;
+  int  data_num;
+  char data_buff[2048];
+} message_seed_t;
+
+typedef struct {
+  long data_type;
+  int  data_num[2];
+} message_reward_t;
+
 struct queue_entry {
 
   u8 *fname;                            /* File name for the test case      */
@@ -265,6 +276,11 @@ enum {
 #define operator_num 19
 #define swarm_num 5
 #define period_core 500000
+
+#define TYPE_SEED 1
+#define TYPE_EMPTY_SEED 2
+#define TYPE_REWARD 3
+#define TYPE_REQUEST 4
 
 #define RAND_C (rand() % 1000 * 0.001)
 #define v_max 1
@@ -434,6 +450,9 @@ typedef struct afl_state {
   /* Position of this state in the global states list */
   u32 _id;
 
+  bool             from_llm;
+  int              unique_id;/* UNIQUE ID of the SEED*/
+  
   afl_forkserver_t fsrv;
   sharedmem_t      shm;
   sharedmem_t     *shm_fuzz;
