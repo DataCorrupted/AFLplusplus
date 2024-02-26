@@ -116,9 +116,9 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   }
 
   if (!data->afl->from_llm){
-    // size = buf_size - size > 0 ? buf_size - size : buf_size; //randomly chunk
-    // size = size <max_size ? size : max_size; // mutated seed length must less than max size
-    size = buf_size < max_size ? buf_size : max_size;
+    size = buf_size - size > 0 ? buf_size - size : buf_size; //randomly chunk
+    size = size <max_size ? size : max_size; // mutated seed length must less than max size
+    // size = buf_size < max_size ? buf_size : max_size;
     memset(data->fuzz_buf, buf, size);
   }
   *out_buf = data->fuzz_buf;
