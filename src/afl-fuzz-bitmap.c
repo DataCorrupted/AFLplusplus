@@ -208,7 +208,7 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
 
   u64 *current = (u64 *)afl->fsrv.trace_bits;
   u64 *virgin = (u64 *)virgin_map;
-  u64 *llm_vir = (u64 *)afl->llm_virgin_bits;
+  // u64 *llm_vir = (u64 *)afl->llm_virgin_bits;
 
   u32 i = ((afl->fsrv.real_map_size + 7) >> 3);
 
@@ -216,7 +216,7 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
 
   u32 *current = (u32 *)afl->fsrv.trace_bits;
   u32 *virgin = (u32 *)virgin_map;
-  u32 *llm_vir = (u32 *)afl->llm_virgin_bits;
+  // u32 *llm_vir = (u32 *)afl->llm_virgin_bits;
 
   u32 i = ((afl->fsrv.real_map_size + 3) >> 2);
 

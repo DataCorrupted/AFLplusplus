@@ -2391,7 +2391,7 @@ int main(int argc, char **argv_orig, char **envp) {
   } else {
 
     memset(afl->virgin_bits, 255, map_size);
-    memset(afl->llm_virgin_bits, 255, map_size);
+    // memset(afl->llm_virgin_bits, 255, map_size);
     printf("%d %d\n", map_size, afl->fsrv.map_size);
 
   }
