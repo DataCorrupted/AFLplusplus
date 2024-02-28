@@ -51,6 +51,11 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   
   data->afl->from_llm = false;
   data->afl->unique_id = -1;
+  
+  size = buf_size < max_size ? buf_size : max_size;
+  memset(data->fuzz_buf, buf, size);
+  *out_buf = data->fuzz_buf;
+  return size;
 
   /* the mutation, send request to LLM, then receive mutate seed 
      my_msg.data_buff max size 2048
