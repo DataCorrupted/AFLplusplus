@@ -47,15 +47,10 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
                        size_t add_buf_size,  // add_buf can be NULL
                        size_t max_size) {
   // rand here is not important. this size only be used when did't receive llm seeds, randomly chunk the given seed
-  int size = (rand() % 100) + 1;
+  int size = 0;
   
   data->afl->from_llm = false;
   data->afl->unique_id = -1;
-  
-  size = buf_size < max_size ? buf_size : max_size;
-  memset(data->fuzz_buf, buf, size);
-  *out_buf = data->fuzz_buf;
-  return size;
 
   /* the mutation, send request to LLM, then receive mutate seed 
      my_msg.data_buff max size 2048
@@ -118,14 +113,29 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
     }
   }
   else {
-    // size = buf_size - size > 0 ? buf_size - size : buf_size; //randomly chunk
-    // size = size <max_size ? size : max_size; // mutated seed length must less than max size
-    size = buf_size < max_size ? buf_size : max_size;
-    memset(data->fuzz_buf, buf, size);
+    // skipping this one mutation if not received from llm
+    return 0;
   }
   *out_buf = data->fuzz_buf;
   return size;
 }
+
+/**
+ * Determine whether the fuzzer should fuzz the queue entry or not.
+ *
+ * (Optional)
+ *
+ * @param[in] data pointer returned in afl_custom_init for this fuzz case
+ * @param filename File name of the test case in the queue entry
+ * @return Return True(1) if the fuzzer will fuzz the queue entry, and
+ *     False(0) otherwise.
+ */
+uint8_t afl_custom_queue_get(my_mutator_t *data, const uint8_t *filename) {
+
+  return 1;
+
+}
+
 
 /**
  * Deinitialize everything
