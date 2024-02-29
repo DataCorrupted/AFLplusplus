@@ -271,7 +271,7 @@ CXXFLAGS          ?= -O3 -funroll-loops -fPIC -D_FORTIFY_SOURCE=2
 override CXXFLAGS += -Wall -g -I ./include/ \
                      -DVERSION=\"$(VERSION)\" -Wno-variadic-macros \
                      -DLLVM_MINOR=$(LLVM_MINOR) -DLLVM_MAJOR=$(LLVM_MAJOR) \
-                     -DMATCHER_OPCODES_COUNT=$(shell grep -c 'GI[R|M].*_.*,' $(FUZZING_HOME)/$(LLVM)/llvm/include/llvm/CodeGen/GlobalISel/InstructionSelector.h)
+                     -DMATCHER_OPCODES_COUNT=$(shell grep -c 'GI[R|M].*_.*,' $(FUZZING_HOME)/$(LLVM)/llvm/include/llvm/CodeGen/GlobalISel/GIMatchTableExecutor.h)
 
 ifneq "$(shell $(LLVM_CONFIG) --includedir) 2> /dev/null" ""
   CLANG_CFL  = -I$(shell $(LLVM_CONFIG) --includedir)
