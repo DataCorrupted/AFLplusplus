@@ -67,15 +67,11 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   fuzzer_seed.data_type = TYPE_REQUEST;
   int snd_status;
   // message size is limited to 2048
-  if (buf_size*2+1<=2040){
-    for (size_t i=0; i< buf_size;i++){
-      sprintf(fuzzer_seed.data_buff + (i * 2), "%02X", buf[i]);
-    }
-    snd_status = msgsnd(msqid, &fuzzer_seed, buf_size*2+4, 0);
+  buf_size = buf_size*2+1<=2040 ? buf_size : 1020;
+  for (size_t i=0; i< buf_size;i++){
+    sprintf(fuzzer_seed.data_buff + (i * 2), "%02X", buf[i]);
   }
-  else{
-    snd_status = msgsnd(msqid, &fuzzer_seed, 0, 0);
-  }
+  snd_status = msgsnd(msqid, &fuzzer_seed, buf_size*2+4, 0);
   memset(fuzzer_seed.data_buff, 0, sizeof(fuzzer_seed.data_buff));
 
   if (snd_status == -1) {
@@ -118,22 +114,6 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   }
   *out_buf = data->fuzz_buf;
   return size;
-}
-
-/**
- * Determine whether the fuzzer should fuzz the queue entry or not.
- *
- * (Optional)
- *
- * @param[in] data pointer returned in afl_custom_init for this fuzz case
- * @param filename File name of the test case in the queue entry
- * @return Return True(1) if the fuzzer will fuzz the queue entry, and
- *     False(0) otherwise.
- */
-uint8_t afl_custom_queue_get(my_mutator_t *data, const uint8_t *filename) {
-
-  return 1;
-
 }
 
 // If this function is present, no splicing target is passed to the fuzz function. This saves time if splicing data is not needed by the custom fuzzing function. This function is never called, just needs to be present to activate.
