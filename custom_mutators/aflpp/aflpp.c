@@ -117,7 +117,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
 }
 
 // If this function is present, no splicing target is passed to the fuzz function. This saves time if splicing data is not needed by the custom fuzzing function. This function is never called, just needs to be present to activate.
-void afl_custom_splice_optout(void *data) {}
+// void afl_custom_splice_optout(void *data) {}
 /**
  * Deinitialize everything
  *
