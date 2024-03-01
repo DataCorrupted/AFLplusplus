@@ -1197,7 +1197,8 @@ size_t AFLCoverage::instrumentGlobalIsel(Module &M) {
       // MatchTable.
       Value *Condition = Switch->getCondition();
 
-      if (!Condition->getType()->isIntegerTy(64)) { continue; }
+      assert(Condition->getType()->isIntegerTy(8) &&
+             "Condition type is not i8, did anything changed in LLVM?");
 
       if (LoadInst *Load = dyn_cast<LoadInst>(Condition)) {
 
