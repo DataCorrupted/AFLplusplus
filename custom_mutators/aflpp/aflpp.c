@@ -67,11 +67,15 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   fuzzer_seed.data_type = TYPE_REQUEST;
   int snd_status;
   // message size is limited to 2048
-  buf_size = buf_size*2+1<=2040 ? buf_size : 1020;
-  for (size_t i=0; i< buf_size;i++){
-    sprintf(fuzzer_seed.data_buff + (i * 2), "%02X", buf[i]);
+  if (buf_size*2+1<=2040){
+    for (size_t i=0; i< buf_size;i++){
+      sprintf(fuzzer_seed.data_buff + (i * 2), "%02X", buf[i]);
+    }
+    snd_status = msgsnd(msqid, &fuzzer_seed, buf_size*2+4, 0);
   }
-  snd_status = msgsnd(msqid, &fuzzer_seed, buf_size*2+4, 0);
+  else{
+    snd_status = msgsnd(msqid, &fuzzer_seed, 0, 0);
+  }
   memset(fuzzer_seed.data_buff, 0, sizeof(fuzzer_seed.data_buff));
 
   if (snd_status == -1) {
