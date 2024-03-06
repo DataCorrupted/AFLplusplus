@@ -247,7 +247,31 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
 
   if (unlikely(ret) && likely(virgin_map == afl->virgin_bits))
     afl->bitmap_changed = 1;
+  if (afl->from_llm){
+    // Create or open the message queue
+    // int msqid = msgget((key_t)4321, IPC_CREAT | 0666);
+    // if (msqid == -1) {
+    //   perror("msgget() failed");
+    //   exit(1);
+    // }
+    // send the uid, reward to LLM
+    // message_reward_t rw_msg;
 
+    // rw_msg.data_num[0] = afl->unique_id;
+    // double reward = 0.0;
+    // if (ret > 0) reward=2.0; //reward=(reward+1)*2; // Extra bonus to find new path in all map
+    // else reward*=0.8;
+    printf("%d ret::rwd %d \n",afl->unique_id, ret);
+    // rw_msg.data_num[1] = (int)(reward*100);
+    // rw_msg.data_type = TYPE_REWARD;
+
+    // int snd_status = msgsnd(msqid, &rw_msg, sizeof(rw_msg.data_num), 0);
+    // if (snd_status == -1) {
+    //   printf("send rewards ERROR\n");
+    //   perror("msgsnd() failed");
+    //   exit(1);
+    // }
+  }
   return ret;
 
 }
