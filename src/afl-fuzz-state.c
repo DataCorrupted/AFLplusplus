@@ -9,13 +9,13 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     https://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
    This is the real deal: the program takes an instrumented binary and
    attempts a variety of basic fuzzing tricks, paying close attention to
@@ -23,8 +23,6 @@
 
  */
 
-#include <signal.h>
-#include <limits.h>
 #include "afl-fuzz.h"
 #include "envs.h"
 
@@ -101,14 +99,9 @@ void afl_state_init(afl_state_t *afl, uint32_t map_size) {
   afl->hang_tmout = EXEC_TIMEOUT;
   afl->exit_on_time = 0;
   afl->stats_update_freq = 1;
-  afl->stats_file_update_freq_msecs = STATS_UPDATE_SEC * 1000;
   afl->stats_avg_exec = 0;
   afl->skip_deterministic = 1;
-  afl->sync_time = SYNC_TIME;
   afl->cmplog_lvl = 2;
-  afl->min_length = 1;
-  afl->max_length = MAX_FILE;
-  afl->switch_fuzz_mode = STRATEGY_SWITCH_TIME * 1000;
 #ifndef NO_SPLICING
   afl->use_splicing = 1;
 #endif
@@ -122,7 +115,6 @@ void afl_state_init(afl_state_t *afl, uint32_t map_size) {
   afl->virgin_bits = ck_alloc(map_size);
   afl->virgin_tmout = ck_alloc(map_size);
   afl->virgin_crash = ck_alloc(map_size);
-  // afl->llm_virgin_bits = ck_alloc(map_size);
   afl->var_bytes = ck_alloc(map_size);
   afl->top_rated = ck_alloc(map_size * sizeof(void *));
   afl->clean_trace = ck_alloc(map_size);
@@ -201,25 +193,11 @@ void read_afl_environment(afl_state_t *afl, char **envp) {
             afl->afl_env.afl_exit_on_time =
                 (u8 *)get_afl_env(afl_environment_variables[i]);
 
-          } else if (!strncmp(env, "AFL_CRASHING_SEEDS_AS_NEW_CRASH",
-
-                              afl_environment_variable_len)) {
-
-            afl->afl_env.afl_crashing_seeds_as_new_crash =
-                atoi((u8 *)get_afl_env(afl_environment_variables[i]));
-
           } else if (!strncmp(env, "AFL_NO_AFFINITY",
 
                               afl_environment_variable_len)) {
 
             afl->afl_env.afl_no_affinity =
-                get_afl_env(afl_environment_variables[i]) ? 1 : 0;
-
-          } else if (!strncmp(env, "AFL_NO_WARN_INSTABILITY",
-
-                              afl_environment_variable_len)) {
-
-            afl->afl_env.afl_no_warn_instability =
                 get_afl_env(afl_environment_variables[i]) ? 1 : 0;
 
           } else if (!strncmp(env, "AFL_TRY_AFFINITY",
@@ -242,13 +220,6 @@ void read_afl_environment(afl_state_t *afl, char **envp) {
             afl->afl_env.afl_hang_tmout =
                 (u8 *)get_afl_env(afl_environment_variables[i]);
 
-          } else if (!strncmp(env, "AFL_KEEP_TIMEOUTS",
-
-                              afl_environment_variable_len)) {
-
-            afl->afl_env.afl_keep_timeouts =
-                get_afl_env(afl_environment_variables[i]) ? 1 : 0;
-
           } else if (!strncmp(env, "AFL_SKIP_BIN_CHECK",
 
                               afl_environment_variable_len)) {
@@ -270,13 +241,6 @@ void read_afl_environment(afl_state_t *afl, char **envp) {
             afl->afl_env.afl_import_first =
                 get_afl_env(afl_environment_variables[i]) ? 1 : 0;
 
-          } else if (!strncmp(env, "AFL_FINAL_SYNC",
-
-                              afl_environment_variable_len)) {
-
-            afl->afl_env.afl_final_sync =
-                get_afl_env(afl_environment_variables[i]) ? 1 : 0;
-
           } else if (!strncmp(env, "AFL_CUSTOM_MUTATOR_ONLY",
 
                               afl_environment_variable_len)) {
@@ -291,13 +255,6 @@ void read_afl_environment(afl_state_t *afl, char **envp) {
             afl->afl_env.afl_cmplog_only_new =
                 get_afl_env(afl_environment_variables[i]) ? 1 : 0;
 
-          } else if (!strncmp(env, "AFL_NO_STARTUP_CALIBRATION",
-
-                              afl_environment_variable_len)) {
-
-            afl->afl_env.afl_no_startup_calibration =
-                get_afl_env(afl_environment_variables[i]) ? 1 : 0;
-
           } else if (!strncmp(env, "AFL_NO_UI", afl_environment_variable_len)) {
 
             afl->afl_env.afl_no_ui =
@@ -308,27 +265,6 @@ void read_afl_environment(afl_state_t *afl, char **envp) {
                               afl_environment_variable_len)) {
 
             afl->afl_env.afl_force_ui =
-                get_afl_env(afl_environment_variables[i]) ? 1 : 0;
-
-          } else if (!strncmp(env, "AFL_IGNORE_PROBLEMS",
-
-                              afl_environment_variable_len)) {
-
-            afl->afl_env.afl_ignore_problems =
-                get_afl_env(afl_environment_variables[i]) ? 1 : 0;
-
-          } else if (!strncmp(env, "AFL_IGNORE_SEED_PROBLEMS",
-
-                              afl_environment_variable_len)) {
-
-            afl->afl_env.afl_ignore_seed_problems =
-                get_afl_env(afl_environment_variables[i]) ? 1 : 0;
-
-          } else if (!strncmp(env, "AFL_IGNORE_TIMEOUTS",
-
-                              afl_environment_variable_len)) {
-
-            afl->afl_env.afl_ignore_timeouts =
                 get_afl_env(afl_environment_variables[i]) ? 1 : 0;
 
           } else if (!strncmp(env, "AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES",
@@ -415,13 +351,6 @@ void read_afl_environment(afl_state_t *afl, char **envp) {
                               afl_environment_variable_len)) {
 
             afl->afl_env.afl_statsd =
-                get_afl_env(afl_environment_variables[i]) ? 1 : 0;
-
-          } else if (!strncmp(env, "AFL_POST_PROCESS_KEEP_ORIGINAL",
-
-                              afl_environment_variable_len)) {
-
-            afl->afl_env.afl_post_process_keep_original =
                 get_afl_env(afl_environment_variables[i]) ? 1 : 0;
 
           } else if (!strncmp(env, "AFL_TMPDIR",
@@ -534,14 +463,7 @@ void read_afl_environment(afl_state_t *afl, char **envp) {
 
                               afl_environment_variable_len)) {
 
-            afl->afl_env.afl_child_kill_signal =
-                (u8 *)get_afl_env(afl_environment_variables[i]);
-
-          } else if (!strncmp(env, "AFL_FORK_SERVER_KILL_SIGNAL",
-
-                              afl_environment_variable_len)) {
-
-            afl->afl_env.afl_fsrv_kill_signal =
+            afl->afl_env.afl_kill_signal =
                 (u8 *)get_afl_env(afl_environment_variables[i]);
 
           } else if (!strncmp(env, "AFL_TARGET_ENV",
@@ -550,72 +472,6 @@ void read_afl_environment(afl_state_t *afl, char **envp) {
 
             afl->afl_env.afl_target_env =
                 (u8 *)get_afl_env(afl_environment_variables[i]);
-
-          } else if (!strncmp(env, "AFL_INPUT_LEN_MIN",
-
-                              afl_environment_variable_len)) {
-
-            afl->min_length =
-                atoi((u8 *)get_afl_env(afl_environment_variables[i]));
-
-          } else if (!strncmp(env, "AFL_INPUT_LEN_MAX",
-
-                              afl_environment_variable_len)) {
-
-            afl->max_length =
-                atoi((u8 *)get_afl_env(afl_environment_variables[i]));
-
-          } else if (!strncmp(env, "AFL_PIZZA_MODE",
-
-                              afl_environment_variable_len)) {
-
-            afl->afl_env.afl_pizza_mode =
-                atoi((u8 *)get_afl_env(afl_environment_variables[i]));
-
-          } else if (!strncmp(env, "AFL_NO_CRASH_README",
-
-                              afl_environment_variable_len)) {
-
-            afl->afl_env.afl_no_crash_readme =
-                atoi((u8 *)get_afl_env(afl_environment_variables[i]));
-
-          } else if (!strncmp(env, "AFL_SYNC_TIME",
-
-                              afl_environment_variable_len)) {
-
-            int time = atoi((u8 *)get_afl_env(afl_environment_variables[i]));
-            if (time > 0) {
-
-              afl->sync_time = time * (60 * 1000LL);
-
-            } else {
-
-              WARNF(
-                  "incorrect value for AFL_SYNC_TIME environment variable, "
-                  "used default value %lld instead.",
-                  afl->sync_time / 60 / 1000);
-
-            }
-
-          } else if (!strncmp(env, "AFL_FUZZER_STATS_UPDATE_INTERVAL",
-
-                              afl_environment_variable_len)) {
-
-            u64 stats_update_freq_sec =
-                strtoull(get_afl_env(afl_environment_variables[i]), NULL, 0);
-            if (stats_update_freq_sec >= UINT_MAX ||
-                0 == stats_update_freq_sec) {
-
-              WARNF(
-                  "Incorrect value given to AFL_FUZZER_STATS_UPDATE_INTERVAL, "
-                  "using default of %d seconds\n",
-                  STATS_UPDATE_SEC);
-
-            } else {
-
-              afl->stats_file_update_freq_msecs = stats_update_freq_sec * 1000;
-
-            }
 
           }
 
@@ -678,16 +534,6 @@ void read_afl_environment(afl_state_t *afl, char **envp) {
 
   }
 
-  if (afl->afl_env.afl_pizza_mode > 0) {
-
-    afl->pizza_is_served = 1;
-
-  } else if (afl->afl_env.afl_pizza_mode < 0) {
-
-    OKF("Pizza easter egg mode is now disabled.");
-
-  }
-
   if (issue_detected) { sleep(2); }
 
 }
@@ -700,7 +546,6 @@ void afl_state_deinit(afl_state_t *afl) {
   if (afl->sync_id) { ck_free(afl->out_dir); }
   if (afl->pass_stats) { ck_free(afl->pass_stats); }
   if (afl->orig_cmp_map) { ck_free(afl->orig_cmp_map); }
-  if (afl->cmplog_binary) { ck_free(afl->cmplog_binary); }
 
   afl_free(afl->queue_buf);
   afl_free(afl->out_buf);
@@ -711,7 +556,6 @@ void afl_state_deinit(afl_state_t *afl) {
   afl_free(afl->ex_buf);
 
   ck_free(afl->virgin_bits);
-  // ck_free(afl->llm_virgin_bits);
   ck_free(afl->virgin_tmout);
   ck_free(afl->virgin_crash);
   ck_free(afl->var_bytes);
@@ -737,17 +581,8 @@ void afl_states_stop(void) {
 
   LIST_FOREACH(&afl_states, afl_state_t, {
 
-    /* NOTE: We need to make sure that the parent (the forkserver) reap the
-     * child (see below). */
-    if (el->fsrv.child_pid > 0)
-      kill(el->fsrv.child_pid, el->fsrv.child_kill_signal);
-    if (el->fsrv.fsrv_pid > 0) {
-
-      kill(el->fsrv.fsrv_pid, el->fsrv.fsrv_kill_signal);
-      /* Make sure the forkserver does not end up as zombie. */
-      waitpid(el->fsrv.fsrv_pid, NULL, 0);
-
-    }
+    if (el->fsrv.child_pid > 0) kill(el->fsrv.child_pid, el->fsrv.kill_signal);
+    if (el->fsrv.fsrv_pid > 0) kill(el->fsrv.fsrv_pid, el->fsrv.kill_signal);
 
   });
 

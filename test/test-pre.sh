@@ -88,8 +88,6 @@ unset AFL_QEMU_PERSISTENT_GPR
 unset AFL_QEMU_PERSISTENT_RET
 unset AFL_QEMU_PERSISTENT_HOOK
 unset AFL_QEMU_PERSISTENT_CNT
-unset AFL_QEMU_PERSISTENT_MEM
-unset AFL_QEMU_PERSISTENT_EXITS
 unset AFL_CUSTOM_MUTATOR_LIBRARY
 unset AFL_PYTHON_MODULE
 unset AFL_PRELOAD
@@ -105,14 +103,14 @@ test -n "$TRAVIS_OS_NAME" && {
   export ASAN_OPTIONS=detect_leaks=0:allocator_may_return_null=1:abort_on_error=1:symbolize=1
 }
 
-#export AFL_LLVM_INSTRUMENT=AFL # AFL mode makes dlopen not link on macos
+export AFL_LLVM_INSTRUMENT=AFL
 
 # on OpenBSD we need to work with llvm from /usr/local/bin
 test -e /usr/local/bin/opt && {
-  test `uname -s` = 'Darwin' || export PATH="/usr/local/bin:${PATH}"
+  export PATH="/usr/local/bin:${PATH}"
 }
 # on MacOS X we prefer afl-clang over afl-gcc, because
-# afl-gcc does not work there (it is a symlink from clang)
+# afl-gcc does not work there
 test `uname -s` = 'Darwin' -o `uname -s` = 'FreeBSD' && {
   AFL_GCC=afl-clang
 } || {
@@ -133,7 +131,7 @@ MEM_LIMIT=none
 
 export PATH="${PATH}:/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin"
 
-$ECHO "${RESET}${GREY}[*] starting AFL++ test framework ..."
+$ECHO "${RESET}${GREY}[*] starting afl++ test framework ..."
 
 test -z "$SYS" && $ECHO "$YELLOW[-] uname -m did not succeed"
 

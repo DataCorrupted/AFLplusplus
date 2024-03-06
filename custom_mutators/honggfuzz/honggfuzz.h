@@ -246,9 +246,9 @@ typedef struct {
     } timing;
     struct {
         struct {
-            uint8_t val[512];
+            uint8_t val[256];
             size_t  len;
-        } dictionary[8192];
+        } dictionary[1024];
         size_t      dictionaryCnt;
         const char* dictionaryFile;
         size_t      mutationsMax;
@@ -263,7 +263,6 @@ typedef struct {
     struct {
         bool        useVerifier;
         bool        exitUponCrash;
-        uint8_t     exitCodeUponCrash;
         const char* reportFile;
         size_t      dynFileIterExpire;
         bool        only_printable;

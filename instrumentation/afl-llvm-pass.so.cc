@@ -12,13 +12,13 @@
    NGRAM previous location coverage comes from Adrian Herrera.
 
    Copyright 2015, 2016 Google Inc. All rights reserved.
-   Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     https://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
    This library is plugged into LLVM when invoking clang through afl-clang-fast.
    It tells the compiler to add code roughly equivalent to the bits discussed
@@ -44,24 +44,15 @@
 typedef long double max_align_t;
 #endif
 
-#include "llvm/Pass.h"
-#if LLVM_VERSION_MAJOR >= 11                        /* use new pass manager */
-  #include "llvm/Passes/PassPlugin.h"
-  #include "llvm/Passes/PassBuilder.h"
-  #include "llvm/IR/PassManager.h"
-#else
-  #include "llvm/IR/LegacyPassManager.h"
-  #include "llvm/Transforms/IPO/PassManagerBuilder.h"
-#endif
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
-#if LLVM_VERSION_MAJOR >= 14                /* how about stable interfaces? */
-  #include "llvm/Passes/OptimizationLevel.h"
-#endif
+#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
-#if LLVM_VERSION_MAJOR >= 4 || \
+#if LLVM_VERSION_MAJOR > 3 || \
     (LLVM_VERSION_MAJOR == 3 && LLVM_VERSION_MINOR > 4)
   #include "llvm/IR/DebugInfo.h"
   #include "llvm/IR/CFG.h"
@@ -70,8 +61,6 @@ typedef long double max_align_t;
   #include "llvm/Support/CFG.h"
 #endif
 
-#include "llvm/IR/IRBuilder.h"
-
 #include "afl-llvm-common.h"
 #include "llvm-alternative-coverage.h"
 
@@ -79,30 +68,17 @@ using namespace llvm;
 
 namespace {
 
-#if LLVM_VERSION_MAJOR >= 11                        /* use new pass manager */
-class AFLCoverage : public PassInfoMixin<AFLCoverage> {
-
- public:
-  AFLCoverage() {
-
-#else
 class AFLCoverage : public ModulePass {
 
  public:
   static char ID;
   AFLCoverage() : ModulePass(ID) {
 
-#endif
-
     initInstrumentList();
 
   }
 
-#if LLVM_VERSION_MAJOR >= 11                        /* use new pass manager */
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
-#else
   bool runOnModule(Module &M) override;
-#endif
 
  protected:
   uint32_t    ngram_size = 0;
@@ -116,55 +92,7 @@ class AFLCoverage : public ModulePass {
 
 }  // namespace
 
-#if LLVM_VERSION_MAJOR >= 11                        /* use new pass manager */
-extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK
-llvmGetPassPluginInfo() {
-
-  return {LLVM_PLUGIN_API_VERSION, "AFLCoverage", "v0.1",
-          /* lambda to insert our pass into the pass pipeline. */
-          [](PassBuilder &PB) {
-
-  #if 1
-    #if LLVM_VERSION_MAJOR <= 13
-            using OptimizationLevel = typename PassBuilder::OptimizationLevel;
-    #endif
-            PB.registerOptimizerLastEPCallback(
-                [](ModulePassManager &MPM, OptimizationLevel OL) {
-
-                  MPM.addPass(AFLCoverage());
-
-                });
-
-  /* TODO LTO registration */
-  #else
-            using PipelineElement = typename PassBuilder::PipelineElement;
-            PB.registerPipelineParsingCallback([](StringRef          Name,
-                                                  ModulePassManager &MPM,
-                                                  ArrayRef<PipelineElement>) {
-
-              if (Name == "AFLCoverage") {
-
-                MPM.addPass(AFLCoverage());
-                return true;
-
-              } else {
-
-                return false;
-
-              }
-
-            });
-
-  #endif
-
-          }};
-
-}
-
-#else
-
 char AFLCoverage::ID = 0;
-#endif
 
 /* needed up to 3.9.0 */
 #if LLVM_VERSION_MAJOR == 3 && \
@@ -186,18 +114,11 @@ uint64_t PowerOf2Ceil(unsigned in) {
 #endif
 
 /* #if LLVM_VERSION_STRING >= "4.0.1" */
-#if LLVM_VERSION_MAJOR >= 5 || \
+#if LLVM_VERSION_MAJOR > 4 || \
     (LLVM_VERSION_MAJOR == 4 && LLVM_VERSION_PATCH >= 1)
   #define AFL_HAVE_VECTOR_INTRINSICS 1
 #endif
-
-#if LLVM_VERSION_MAJOR >= 11                        /* use new pass manager */
-PreservedAnalyses AFLCoverage::run(Module &M, ModuleAnalysisManager &MAM) {
-
-#else
 bool AFLCoverage::runOnModule(Module &M) {
-
-#endif
 
   LLVMContext &C = M.getContext();
 
@@ -211,10 +132,6 @@ bool AFLCoverage::runOnModule(Module &M) {
   struct timezone tz;
   u32             rand_seed;
   unsigned int    cur_loc = 0;
-
-#if LLVM_VERSION_MAJOR >= 11                        /* use new pass manager */
-  auto PA = PreservedAnalyses::all();
-#endif
 
   /* Setup random() so we get Actually Random(TM) outputs from AFL_R() */
   gettimeofday(&tv, &tz);
@@ -251,7 +168,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   /* Decide instrumentation ratio */
 
-  char        *inst_ratio_str = getenv("AFL_INST_RATIO");
+  char *       inst_ratio_str = getenv("AFL_INST_RATIO");
   unsigned int inst_ratio = 100;
 
   if (inst_ratio_str) {
@@ -413,7 +330,7 @@ bool AFLCoverage::runOnModule(Module &M) {
   GlobalVariable *AFLContext = NULL;
 
   if (ctx_str || caller_str)
-#if defined(__ANDROID__) || defined(__HAIKU__) || defined(NO_TLS)
+#if defined(__ANDROID__) || defined(__HAIKU__)
     AFLContext = new GlobalVariable(
         M, Int32Ty, false, GlobalValue::ExternalLinkage, 0, "__afl_prev_ctx");
 #else
@@ -424,7 +341,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
 #ifdef AFL_HAVE_VECTOR_INTRINSICS
   if (ngram_size)
-  #if defined(__ANDROID__) || defined(__HAIKU__) || defined(NO_TLS)
+  #if defined(__ANDROID__) || defined(__HAIKU__)
     AFLPrevLoc = new GlobalVariable(
         M, PrevLocTy, /* isConstant */ false, GlobalValue::ExternalLinkage,
         /* Initializer */ nullptr, "__afl_prev_loc");
@@ -437,7 +354,7 @@ bool AFLCoverage::runOnModule(Module &M) {
   #endif
   else
 #endif
-#if defined(__ANDROID__) || defined(__HAIKU__) || defined(NO_TLS)
+#if defined(__ANDROID__) || defined(__HAIKU__)
     AFLPrevLoc = new GlobalVariable(
         M, Int32Ty, false, GlobalValue::ExternalLinkage, 0, "__afl_prev_loc");
 #else
@@ -448,7 +365,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
 #ifdef AFL_HAVE_VECTOR_INTRINSICS
   if (ctx_k)
-  #if defined(__ANDROID__) || defined(__HAIKU__) || defined(NO_TLS)
+  #if defined(__ANDROID__) || defined(__HAIKU__)
     AFLPrevCaller = new GlobalVariable(
         M, PrevCallerTy, /* isConstant */ false, GlobalValue::ExternalLinkage,
         /* Initializer */ nullptr, "__afl_prev_caller");
@@ -461,7 +378,7 @@ bool AFLCoverage::runOnModule(Module &M) {
   #endif
   else
 #endif
-#if defined(__ANDROID__) || defined(__HAIKU__) || defined(NO_TLS)
+#if defined(__ANDROID__) || defined(__HAIKU__)
     AFLPrevCaller =
         new GlobalVariable(M, Int32Ty, false, GlobalValue::ExternalLinkage, 0,
                            "__afl_prev_caller");
@@ -486,7 +403,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   Constant *PrevLocShuffleMask = ConstantVector::get(PrevLocShuffle);
 
-  Constant                   *PrevCallerShuffleMask = NULL;
+  Constant *                  PrevCallerShuffleMask = NULL;
   SmallVector<Constant *, 32> PrevCallerShuffle = {UndefValue::get(Int32Ty)};
 
   if (ctx_k) {
@@ -506,7 +423,7 @@ bool AFLCoverage::runOnModule(Module &M) {
   // other constants we need
   ConstantInt *One = ConstantInt::get(Int8Ty, 1);
 
-  Value    *PrevCtx = NULL;     // CTX sensitive coverage
+  Value *   PrevCtx = NULL;     // CTX sensitive coverage
   LoadInst *PrevCaller = NULL;  // K-CTX coverage
 
   /* Instrument all the things! */
@@ -521,9 +438,9 @@ bool AFLCoverage::runOnModule(Module &M) {
       fprintf(stderr, "FUNCTION: %s (%zu)\n", F.getName().str().c_str(),
               F.size());
 
-    if (!isInInstrumentList(&F, MNAME)) { continue; }
+    if (!isInInstrumentList(&F)) continue;
 
-    if (F.size() < function_minimum_size) { continue; }
+    if (F.size() < function_minimum_size) continue;
 
     std::list<Value *> todo;
     for (auto &BB : F) {
@@ -537,11 +454,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 #ifdef AFL_HAVE_VECTOR_INTRINSICS
         if (ctx_k) {
 
-          PrevCaller = IRB.CreateLoad(
-  #if LLVM_VERSION_MAJOR >= 14
-              PrevCallerTy,
-  #endif
-              AFLPrevCaller);
+          PrevCaller = IRB.CreateLoad(AFLPrevCaller);
           PrevCaller->setMetadata(M.getMDKindID("nosanitize"),
                                   MDNode::get(C, None));
           PrevCtx =
@@ -552,13 +465,9 @@ bool AFLCoverage::runOnModule(Module &M) {
 #endif
         {
 
-          // load the context ID of the previous function and write to a
+          // load the context ID of the previous function and write to to a
           // local variable on the stack
-          LoadInst *PrevCtxLoad = IRB.CreateLoad(
-#if LLVM_VERSION_MAJOR >= 14
-              IRB.getInt32Ty(),
-#endif
-              AFLContext);
+          LoadInst *PrevCtxLoad = IRB.CreateLoad(AFLContext);
           PrevCtxLoad->setMetadata(M.getMDKindID("nosanitize"),
                                    MDNode::get(C, None));
           PrevCtx = PrevCtxLoad;
@@ -634,7 +543,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
 /* There is a problem with Ubuntu 18.04 and llvm 6.0 (see issue #63).
    The inline function successors() is not inlined and also not found at runtime
-   :-( As I am unable to detect Ubuntu18.04 here, the next best thing is to
+   :-( As I am unable to detect Ubuntu18.04 heree, the next best thing is to
    disable this optional optimization for LLVM 6.0.0 and Linux */
 #if !(LLVM_VERSION_MAJOR == 6 && LLVM_VERSION_MINOR == 0) || !defined __linux__
       // only instrument if this basic block is the destination of a previous
@@ -711,26 +620,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
       /* Load prev_loc */
 
-      LoadInst *PrevLoc;
-
-      if (ngram_size) {
-
-        PrevLoc = IRB.CreateLoad(
-#if LLVM_VERSION_MAJOR >= 14
-            PrevLocTy,
-#endif
-            AFLPrevLoc);
-
-      } else {
-
-        PrevLoc = IRB.CreateLoad(
-#if LLVM_VERSION_MAJOR >= 14
-            IRB.getInt32Ty(),
-#endif
-            AFLPrevLoc);
-
-      }
-
+      LoadInst *PrevLoc = IRB.CreateLoad(AFLPrevLoc);
       PrevLoc->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
       Value *PrevLocTrans;
 
@@ -754,33 +644,40 @@ bool AFLCoverage::runOnModule(Module &M) {
 
       /* Load SHM pointer */
 
-      LoadInst *MapPtr = IRB.CreateLoad(
-#if LLVM_VERSION_MAJOR >= 14
-          PointerType::get(Int8Ty, 0),
-#endif
-          AFLMapPtr);
+      LoadInst *MapPtr = IRB.CreateLoad(AFLMapPtr);
       MapPtr->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
 
       Value *MapPtrIdx;
 #ifdef AFL_HAVE_VECTOR_INTRINSICS
       if (ngram_size)
         MapPtrIdx = IRB.CreateGEP(
-            Int8Ty, MapPtr,
+            MapPtr,
             IRB.CreateZExt(
                 IRB.CreateXor(PrevLocTrans, IRB.CreateZExt(CurLoc, Int32Ty)),
                 Int32Ty));
       else
 #endif
-        MapPtrIdx = IRB.CreateGEP(
-#if LLVM_VERSION_MAJOR >= 14
-            Int8Ty,
-#endif
-            MapPtr, IRB.CreateXor(PrevLocTrans, CurLoc));
+        MapPtrIdx = IRB.CreateGEP(MapPtr, IRB.CreateXor(PrevLocTrans, CurLoc));
 
       /* Update bitmap */
 
       if (use_threadsafe_counters) {                              /* Atomic */
-
+                                     /*
+                                     #if LLVM_VERSION_MAJOR < 9
+                                             if (neverZero_counters_str !=
+                                                 NULL) {  // with llvm 9 we make this the default as the bug
+                                     in llvm
+                                                          // is then fixed
+                                     #else
+                                             if (!skip_nozero) {
+                             
+                                     #endif
+                                               // register MapPtrIdx in a todo list
+                                               todo.push_back(MapPtrIdx);
+                             
+                                             } else {
+                             
+                                     */
         IRB.CreateAtomicRMW(llvm::AtomicRMWInst::BinOp::Add, MapPtrIdx, One,
 #if LLVM_VERSION_MAJOR >= 13
                             llvm::MaybeAlign(1),
@@ -794,20 +691,17 @@ bool AFLCoverage::runOnModule(Module &M) {
 
       } else {
 
-        LoadInst *Counter = IRB.CreateLoad(
-#if LLVM_VERSION_MAJOR >= 14
-            IRB.getInt8Ty(),
-#endif
-            MapPtrIdx);
+        LoadInst *Counter = IRB.CreateLoad(MapPtrIdx);
         Counter->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
 
         Value *Incr = IRB.CreateAdd(Counter, One);
 
-#if LLVM_VERSION_MAJOR >= 9
-        if (!skip_nozero) {
-
+#if LLVM_VERSION_MAJOR < 9
+        if (neverZero_counters_str !=
+            NULL) {  // with llvm 9 we make this the default as the bug in llvm
+                     // is then fixed
 #else
-        if (neverZero_counters_str != NULL) {
+        if (!skip_nozero) {
 
 #endif
           /* hexcoder: Realize a counter that skips zero during overflow.
@@ -935,11 +829,7 @@ bool AFLCoverage::runOnModule(Module &M) {
         IRBuilder<> IRB(&(*it0));
 
         // load the old counter value atomically
-        LoadInst *Counter = IRB.CreateLoad(
-  #if LLVM_VERSION_MAJOR >= 14
-        IRB.getInt8Ty(),
-  #endif
-        MapPtrIdx);
+        LoadInst *Counter = IRB.CreateLoad(MapPtrIdx);
         Counter->setAlignment(llvm::Align());
         Counter->setAtomic(llvm::AtomicOrdering::Monotonic);
         Counter->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
@@ -1066,12 +956,11 @@ bool AFLCoverage::runOnModule(Module &M) {
     else {
 
       char modeline[100];
-      snprintf(modeline, sizeof(modeline), "%s%s%s%s%s%s",
+      snprintf(modeline, sizeof(modeline), "%s%s%s%s%s",
                getenv("AFL_HARDEN") ? "hardened" : "non-hardened",
                getenv("AFL_USE_ASAN") ? ", ASAN" : "",
                getenv("AFL_USE_MSAN") ? ", MSAN" : "",
                getenv("AFL_USE_CFISAN") ? ", CFISAN" : "",
-               getenv("AFL_USE_TSAN") ? ", TSAN" : "",
                getenv("AFL_USE_UBSAN") ? ", UBSAN" : "");
       OKF("Instrumented %d locations (%s mode, ratio %u%%).", inst_blocks,
           modeline, inst_ratio);
@@ -1080,15 +969,10 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   }
 
-#if LLVM_VERSION_MAJOR >= 11                        /* use new pass manager */
-  return PA;
-#else
   return true;
-#endif
 
 }
 
-#if LLVM_VERSION_MAJOR < 11                         /* use old pass manager */
 static void registerAFLPass(const PassManagerBuilder &,
                             legacy::PassManagerBase &PM) {
 
@@ -1101,5 +985,4 @@ static RegisterStandardPasses RegisterAFLPass(
 
 static RegisterStandardPasses RegisterAFLPass0(
     PassManagerBuilder::EP_EnabledOnOptLevel0, registerAFLPass);
-#endif
 

@@ -6,7 +6,6 @@ This shows a simple harness for unicornafl in C
 
 The target can be built using the `make` command.
 Just make sure you have built unicorn support first:
-
 ```bash
 cd /path/to/afl/unicorn_mode
 ./build_unicorn_support.sh
@@ -20,4 +19,4 @@ was built in case you want to rebuild it or recompile it for any reason.
 
 The pre-built binary (persistent_target_x86_64) was built using -g -O0 in gcc.
 
-Then load the binary and execute the main function directly.
+We then load the binary and execute the main function directly.

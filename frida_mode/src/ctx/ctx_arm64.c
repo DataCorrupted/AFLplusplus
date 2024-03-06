@@ -1,7 +1,8 @@
 #include "frida-gumjs.h"
 
+#include "debug.h"
+
 #include "ctx.h"
-#include "util.h"
 
 #if defined(__aarch64__)
 
@@ -173,7 +174,7 @@ gsize ctx_read_reg(GumArm64CpuContext *ctx, arm64_reg reg) {
       ARM64_REG_64(ARM64_REG_SP, ctx->sp)
 
     default:
-      FFATAL("Failed to read register: %d", reg);
+      FATAL("Failed to read register: %d", reg);
       return 0;
 
   }
@@ -205,7 +206,7 @@ size_t ctx_get_size(const cs_insn *instr, cs_arm64_op *operand) {
   }
 
   mnemonic_len = strlen(instr->mnemonic);
-  if (mnemonic_len == 0) { FFATAL("No mnemonic found"); };
+  if (mnemonic_len == 0) { FATAL("No mnemonic found"); };
 
   char last = instr->mnemonic[mnemonic_len - 1];
   switch (last) {
@@ -251,14 +252,14 @@ size_t ctx_get_size(const cs_insn *instr, cs_arm64_op *operand) {
 
     if (mnemonic_len < 3) {
 
-      FFATAL("VAS Mnemonic too short: %s\n", instr->mnemonic);
+      FATAL("VAS Mnemonic too short: %s\n", instr->mnemonic);
 
     }
 
     vas_digit = instr->mnemonic[2];
     if (vas_digit < '0' || vas_digit > '9') {
 
-      FFATAL("VAS Mnemonic digit out of range: %s\n", instr->mnemonic);
+      FATAL("VAS Mnemonic digit out of range: %s\n", instr->mnemonic);
 
     }
 
@@ -292,7 +293,7 @@ size_t ctx_get_size(const cs_insn *instr, cs_arm64_op *operand) {
     case ARM64_VAS_16B:
       return 16 * count_byte;
     default:
-      FFATAL("Unexpected VAS type: %s %d", instr->mnemonic, operand->vas);
+      FATAL("Unexpected VAS type: %s %d", instr->mnemonic, operand->vas);
 
   }
 

@@ -12,13 +12,13 @@
                      Dominik Maier <mail@dmnk.co>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     https://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
    Shared code to handle the shared memory. This is used by the fuzzer
    as well the other components like afl-tmin, afl-showmap, etc...
@@ -56,7 +56,7 @@ typedef struct sharedmem {
 
 } sharedmem_t;
 
-u8  *afl_shm_init(sharedmem_t *, size_t, unsigned char non_instrumented_mode);
+u8 * afl_shm_init(sharedmem_t *, size_t, unsigned char non_instrumented_mode);
 void afl_shm_deinit(sharedmem_t *);
 
 #endif

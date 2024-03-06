@@ -1,7 +1,8 @@
 #include "frida-gumjs.h"
 
+#include "debug.h"
+
 #include "ctx.h"
-#include "util.h"
 
 #if defined(__i386__)
 
@@ -71,7 +72,7 @@ gsize ctx_read_reg(GumIA32CpuContext *ctx, x86_reg reg) {
     X86_REG_32(X86_REG_EIP, ctx->eip)
 
     default:
-      FFATAL("Failed to read register: %d", reg);
+      FATAL("Failed to read register: %d", reg);
       return 0;
 
   }

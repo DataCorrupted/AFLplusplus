@@ -9,13 +9,13 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     https://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
    This is the real deal: the program takes an instrumented binary and
    attempts a variety of basic fuzzing tricks, paying close attention to
@@ -57,7 +57,7 @@ void load_extras_file(afl_state_t *afl, u8 *fname, u32 *min_len, u32 *max_len,
 
   FILE *f;
   u8    buf[MAX_LINE];
-  u8   *lptr;
+  u8 *  lptr;
   u32   cur_line = 0;
 
   u8 val_bufs[2][STRINGIFY_VAL_SIZE_MAX];
@@ -176,8 +176,6 @@ void load_extras_file(afl_state_t *afl, u8 *fname, u32 *min_len, u32 *max_len,
     afl->extras =
         afl_realloc((void **)&afl->extras,
                     (afl->extras_cnt + 1) * sizeof(struct extra_data));
-    char *hexdigits = "0123456789abcdef";
-
     if (unlikely(!afl->extras)) { PFATAL("alloc"); }
 
     wptr = afl->extras[afl->extras_cnt].data = ck_alloc(rptr - lptr);
@@ -186,12 +184,13 @@ void load_extras_file(afl_state_t *afl, u8 *fname, u32 *min_len, u32 *max_len,
 
     while (*lptr) {
 
+      char *hexdigits = "0123456789abcdef";
+
       switch (*lptr) {
 
         case 1 ... 31:
         case 128 ... 255:
           WARNF("Non-printable characters in line %u.", cur_line);
-          ++lptr;
           continue;
           break;
 
@@ -292,10 +291,10 @@ static void extras_check_and_sort(afl_state_t *afl, u32 min_len, u32 max_len,
 
 void load_extras(afl_state_t *afl, u8 *dir) {
 
-  DIR           *d;
+  DIR *          d;
   struct dirent *de;
   u32            min_len = MAX_DICT_FILE, max_len = 0, dict_level = 0;
-  u8            *x;
+  u8 *           x;
 
   u8 val_bufs[2][STRINGIFY_VAL_SIZE_MAX];
 
@@ -331,7 +330,7 @@ void load_extras(afl_state_t *afl, u8 *dir) {
   while ((de = readdir(d))) {
 
     struct stat st;
-    u8         *fn = alloc_printf("%s/%s", dir, de->d_name);
+    u8 *        fn = alloc_printf("%s/%s", dir, de->d_name);
     s32         fd;
 
     if (lstat(fn, &st) || access(fn, R_OK)) {

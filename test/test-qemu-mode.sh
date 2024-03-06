@@ -22,7 +22,7 @@ test -e ../afl-qemu-trace && {
       echo 00000 > in/in
       $ECHO "$GREY[*] running afl-fuzz for qemu_mode, this will take approx 10 seconds"
       {
-        ../afl-fuzz -m ${MEM_LIMIT} -V07 -Q -i in -o out -- ./test-instr >>errors 2>&1
+        ../afl-fuzz -m ${MEM_LIMIT} -V10 -Q -i in -o out -- ./test-instr >>errors 2>&1
       } >>errors 2>&1
       test -n "$( ls out/default/queue/id:000002* 2>/dev/null )" && {
         $ECHO "$GREEN[+] afl-fuzz is working correctly with qemu_mode"
@@ -63,7 +63,7 @@ test -e ../afl-qemu-trace && {
           {
             export AFL_PRELOAD=../libcompcov.so
             export AFL_COMPCOV_LEVEL=2
-            ../afl-fuzz -m ${MEM_LIMIT} -V07 -Q -i in -o out -- ./test-compcov >>errors 2>&1
+            ../afl-fuzz -m ${MEM_LIMIT} -V10 -Q -i in -o out -- ./test-compcov >>errors 2>&1
             unset AFL_PRELOAD
             unset AFL_COMPCOV_LEVEL
           } >>errors 2>&1
@@ -88,7 +88,7 @@ test -e ../afl-qemu-trace && {
       test "$SYS" = "i686" -o "$SYS" = "x86_64" -o "$SYS" = "amd64" -o "$SYS" = "i86pc" -o "$SYS" = "aarch64" -o ! "${SYS%%arm*}" && {
         $ECHO "$GREY[*] running afl-fuzz for qemu_mode cmplog, this will take approx 10 seconds"
         {
-          ../afl-fuzz -m none -V07 -Q -c 0 -l 3 -i in -o out -- ./test-compcov >>errors 2>&1
+          ../afl-fuzz -m none -V10 -Q -c 0 -i in -o out -- ./test-compcov >>errors 2>&1
         } >>errors 2>&1
         test -n "$( ls out/default/queue/id:000001* 2>/dev/null )" && {
           $ECHO "$GREEN[+] afl-fuzz is working correctly with qemu_mode cmplog"
@@ -107,26 +107,19 @@ test -e ../afl-qemu-trace && {
       test "$SYS" = "i686" -o "$SYS" = "x86_64" -o "$SYS" = "amd64" -o "$SYS" = "i86pc" -o "$SYS" = "aarch64" -o ! "${SYS%%arm*}" && {
         $ECHO "$GREY[*] running afl-fuzz for persistent qemu_mode, this will take approx 10 seconds"
         {
-          IS_STATIC=""
-          file test-instr | grep -q 'statically linked' && IS_STATIC=1
-          test -z "$IS_STATIC" && {
-            if file test-instr | grep -q "32-bit"; then
-              # for 32-bit reduce 8 nibbles to the lower 7 nibbles
-  	      ADDR_LOWER_PART=`nm test-instr | grep "T main" | awk '{print $1}' | sed 's/^.//'`
-            else
-              # for 64-bit reduce 16 nibbles to the lower 9 nibbles
-  	      ADDR_LOWER_PART=`nm test-instr | grep "T main" | awk '{print $1}' | sed 's/^.......//'`
-            fi
-            export AFL_QEMU_PERSISTENT_ADDR=`expr 0x4${ADDR_LOWER_PART}`
-          }
-          test -n "$IS_STATIC" && {
-            export AFL_QEMU_PERSISTENT_ADDR=0x`nm test-instr | grep "T main" |  awk '{print $1}'`
-          }
+          if file test-instr | grep -q "32-bit"; then
+            # for 32-bit reduce 8 nibbles to the lower 7 nibbles
+	    ADDR_LOWER_PART=`nm test-instr | grep "T main" | awk '{print $1}' | sed 's/^.//'`
+          else
+            # for 64-bit reduce 16 nibbles to the lower 9 nibbles
+	    ADDR_LOWER_PART=`nm test-instr | grep "T main" | awk '{print $1}' | sed 's/^.......//'`
+          fi
+          export AFL_QEMU_PERSISTENT_ADDR=`expr 0x4${ADDR_LOWER_PART}`
           export AFL_QEMU_PERSISTENT_GPR=1
           $ECHO "Info: AFL_QEMU_PERSISTENT_ADDR=$AFL_QEMU_PERSISTENT_ADDR <= $(nm test-instr | grep "T main" | awk '{print $1}')"
           env|grep AFL_|sort
           file test-instr
-          ../afl-fuzz -m ${MEM_LIMIT} -V07 -Q -i in -o out -- ./test-instr
+          ../afl-fuzz -m ${MEM_LIMIT} -V10 -Q -i in -o out -- ./test-instr
           unset AFL_QEMU_PERSISTENT_ADDR
         } >>errors 2>&1
         test -n "$( ls out/default/queue/id:000002* 2>/dev/null )" && {
@@ -172,8 +165,11 @@ test -e ../afl-qemu-trace && {
             CODE=1
           }
         } || {
-	  $ECHO "$YELLOW[-] cannot compile test program (32 bit) for unsigaction library"
-          INCOMPLETE=1
+          echo CUT------------------------------------------------------------------CUT
+          cat errors
+          echo CUT------------------------------------------------------------------CUT
+	  $ECHO "$RED[!] cannot compile test program (32 bit) for unsigaction library"
+          CODE=1
         }
       } || {
         $ECHO "$YELLOW[-] we cannot test qemu_mode unsigaction library (32 bit) because it is not present"
@@ -198,8 +194,11 @@ test -e ../afl-qemu-trace && {
           }
           unset LD_PRELOAD
         } || {
-	  $ECHO "$YELLOW[-] cannot compile test program (64 bit) for unsigaction library"
-          INCOMPLETE=1
+          echo CUT------------------------------------------------------------------CUT
+          cat errors
+          echo CUT------------------------------------------------------------------CUT
+	  $ECHO "$RED[!] cannot compile test program (64 bit) for unsigaction library"
+          CODE=1
         }
       } || {
         $ECHO "$YELLOW[-] we cannot test qemu_mode unsigaction library (64 bit) because it is not present"

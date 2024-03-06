@@ -5,15 +5,11 @@
 
 extern gboolean ranges_debug_maps;
 extern gboolean ranges_inst_libs;
-extern gboolean ranges_inst_jit;
-extern gboolean ranges_inst_dynamic_load;
 
 void ranges_config(void);
 void ranges_init(void);
 
-void ranges_print_debug_maps(void);
-
-gboolean range_is_excluded(GumAddress address);
+gboolean range_is_excluded(gpointer address);
 
 void ranges_exclude();
 

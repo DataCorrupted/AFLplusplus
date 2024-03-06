@@ -13,7 +13,7 @@ typedef void (*afl_persistent_hook_fn)(api_regs *regs, uint64_t guest_base,
 
 extern int __afl_persistent_loop(unsigned int max_cnt);
 
-extern unsigned int  *__afl_fuzz_len;
+extern unsigned int * __afl_fuzz_len;
 extern unsigned char *__afl_fuzz_ptr;
 
 extern guint64                persistent_start;
@@ -30,10 +30,7 @@ void persistent_init(void);
 gboolean persistent_is_supported(void);
 
 void persistent_prologue(GumStalkerOutput *output);
-void persistent_prologue_arch(GumStalkerOutput *output);
-
 void persistent_epilogue(GumStalkerOutput *output);
-void persistent_epilogue_arch(GumStalkerOutput *output);
 
 #endif
 

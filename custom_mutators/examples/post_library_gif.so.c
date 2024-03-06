@@ -45,8 +45,9 @@
    1) If you don't want to modify the test case, simply set `*out_buf = in_buf`
       and return the original `len`.
 
+   NOTE: the following is currently NOT true, we abort in this case!
    2) If you want to skip this test case altogether and have AFL generate a
-      new one, return 0.
+      new one, return 0 or set `*out_buf = NULL`.
       Use this sparingly - it's faster than running the target program
       with patently useless inputs, but still wastes CPU time.
 
@@ -57,6 +58,8 @@
 
       Note that the buffer will *not* be freed for you. To avoid memory leaks,
       you need to free it or reuse it on subsequent calls (as shown below).
+
+      *** Feel free to reuse the original 'in_buf' BUFFER and return it. ***
 
     Alright. The example below shows a simple postprocessor that tries to make
     sure that all input files start with "GIF89a".
@@ -69,7 +72,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "afl-fuzz.h"
 
 /* Header that must be present at the beginning of every test case: */
 
@@ -77,7 +79,8 @@
 
 typedef struct post_state {
 
-  size_t size;
+  unsigned char *buf;
+  size_t         size;
 
 } post_state_t;
 
@@ -91,6 +94,15 @@ void *afl_custom_init(void *afl) {
 
   }
 
+  state->buf = calloc(sizeof(unsigned char), 4096);
+  if (!state->buf) {
+
+    free(state);
+    perror("calloc");
+    return NULL;
+
+  }
+
   return state;
 
 }
@@ -100,10 +112,6 @@ void *afl_custom_init(void *afl) {
 size_t afl_custom_post_process(post_state_t *data, unsigned char *in_buf,
                                unsigned int len, unsigned char **out_buf) {
 
-  /* we do in-place modification as we do not increase the size */
-
-  *out_buf = in_buf;
-
   /* Skip execution altogether for buffers shorter than 6 bytes (just to
      show how it's done). We can trust len to be sane. */
 
@@ -111,7 +119,32 @@ size_t afl_custom_post_process(post_state_t *data, unsigned char *in_buf,
 
   /* Do nothing for buffers that already start with the expected header. */
 
-  if (!memcmp(in_buf, HEADER, strlen(HEADER))) { return len; }
+  if (!memcmp(in_buf, HEADER, strlen(HEADER))) {
+
+    *out_buf = in_buf;
+    return len;
+
+  }
+
+  /* Allocate memory for new buffer, reusing previous allocation if
+     possible. */
+
+  *out_buf = realloc(data->buf, len);
+
+  /* If we're out of memory, the most graceful thing to do is to return the
+     original buffer and give up on modifying it. Let AFL handle OOM on its
+     own later on. */
+
+  if (!*out_buf) {
+
+    *out_buf = in_buf;
+    return len;
+
+  }
+
+  /* Copy the original data to the new location. */
+
+  memcpy(*out_buf, in_buf, len);
 
   /* Insert the new header. */
 
@@ -126,6 +159,7 @@ size_t afl_custom_post_process(post_state_t *data, unsigned char *in_buf,
 /* Gets called afterwards */
 void afl_custom_deinit(post_state_t *data) {
 
+  free(data->buf);
   free(data);
 
 }

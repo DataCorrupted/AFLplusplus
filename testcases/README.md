@@ -1,6 +1,6 @@
-# AFL++ starting test cases
+# AFL starting test cases
 
-For the general instruction manual, see [docs/README.md](../docs/README.md).
+  (See [../README.md](../README.md) for the general instruction manual.)
 
 The archives/, images/, multimedia/, and others/ subdirectories contain small,
 standalone files that can be used to seed afl-fuzz when testing parsers for a

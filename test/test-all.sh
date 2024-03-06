@@ -23,5 +23,3 @@
 . ./test-unittests.sh
 
 . ./test-post.sh
-
-exit 0

@@ -5,13 +5,7 @@
 
 int main(int argc, char **argv) {
 
-  if (!getenv("TEST_DLOPEN_TARGET")) {
-
-    fprintf(stderr, "Error: TEST_DLOPEN_TARGET not set!\n");
-    return 1;
-
-  }
-
+  if (!getenv("TEST_DLOPEN_TARGET")) return 1;
   void *lib = dlopen(getenv("TEST_DLOPEN_TARGET"), RTLD_LAZY);
   if (!lib) {
 
@@ -21,18 +15,8 @@ int main(int argc, char **argv) {
   }
 
   int (*func)(int, char **) = dlsym(lib, "main_exported");
-  if (!func) {
+  if (!func) return 3;
 
-    fprintf(stderr, "Error: main_exported not found!\n");
-    return 3;
-
-  }
-
-  // must use deferred forkserver as otherwise AFL++ instrumentation aborts
-  // because all dlopen() of instrumented libs must be before the forkserver
-  __AFL_INIT();
-
-  fprintf(stderr, "Running main_exported\n");
   return func(argc, argv);
 
 }

@@ -5,18 +5,18 @@
    Originally written by Michal Zalewski
 
    Now maintained by Marc Heuse <mh@mh-sec.de>,
-                     Dominik Maier <mail@dmnk.co>
+                     Heiko Eißfeldt <heiko.eissfeldt@hexco.de>,
                      Andrea Fioraldi <andreafioraldi@gmail.com>,
-                     Heiko Eissfeldt <heiko.eissfeldt@hexco.de>,
+                     Dominik Maier <mail@dmnk.co>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2021 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     https://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
  */
 
@@ -26,7 +26,7 @@
 /* Version string: */
 
 // c = release, a = volatile github dev, e = experimental branch
-#define VERSION "++4.09a"
+#define VERSION "++3.14a"
 
 /******************************************************
  *                                                    *
@@ -43,12 +43,6 @@
    Default: 8MB (defined in bytes) */
 #define DEFAULT_SHMEM_SIZE (8 * 1024 * 1024)
 
-/* Default time until when no more coverage finds are happening afl-fuzz
-   switches to exploitation mode. It automatically switches back when new
-   coverage is found.
-   Default: 300 (seconds) */
-#define STRATEGY_SWITCH_TIME 1000
-
 /* Default file permission umode when creating files (default: 0600) */
 #define DEFAULT_PERMISSION 0600
 
@@ -60,6 +54,10 @@
  *
  */
 
+/* if TRANSFORM is enabled with '-l T', this additionally enables base64
+   encoding/decoding */
+// #define CMPLOG_SOLVE_TRANSFORM_BASE64
+
 /* If a redqueen pass finds more than one solution, try to combine them? */
 #define CMPLOG_COMBINE
 
@@ -67,10 +65,10 @@
 #define CMPLOG_CORPUS_PERCENT 5U
 
 /* Number of potential positions from which we decide if cmplog becomes
-   useless, default 12288 */
+   useless, default 8096 */
 #define CMPLOG_POSITIONS_MAX (12 * 1024)
 
-/* Maximum allowed fails per CMP value. Default: 96 */
+/* Maximum allowed fails per CMP value. Default: 128 */
 #define CMPLOG_FAIL_MAX 96
 
 /* -------------------------------------*/
@@ -83,7 +81,7 @@
    will be kept and written to the crash/ directory as RECORD:... files.
    Note that every crash will be written, not only unique ones! */
 
-// #define AFL_PERSISTENT_RECORD
+//#define AFL_PERSISTENT_RECORD
 
 /* console output colors: There are three ways to configure its behavior
  * 1. default: colored outputs fixed on: defined USE_COLOR && defined
@@ -120,9 +118,9 @@
 
 // #define _WANT_ORIGINAL_AFL_ALLOC
 
-/* Comment out to disable fancy boxes and use poor man's 7-bit UI: */
+/* Comment out to disable fancy ANSI boxes and use poor man's 7-bit UI: */
 
-#ifndef DISABLE_FANCY
+#ifndef ANDROID_DISABLE_FANCY  // Fancy boxes are ugly from adb
   #define FANCY_BOXES
 #endif
 
@@ -155,9 +153,8 @@
 /* Number of calibration cycles per every new test case (and for test
    cases that show variable behavior): */
 
-#define CAL_CYCLES_FAST 3U
-#define CAL_CYCLES 7U
-#define CAL_CYCLES_LONG 12U
+#define CAL_CYCLES 8U
+#define CAL_CYCLES_LONG 20U
 
 /* Number of subsequent timeouts before abandoning an input file: */
 
@@ -240,11 +237,11 @@
    (note that if this value is changed, several areas in afl-cc.c, afl-fuzz.c
    and afl-fuzz-state.c have to be changed as well! */
 
-#define MAX_FILE (1 * 1024 * 1024L)
+#define MAX_FILE (1 * 1024 * 1024U)
 
 /* The same, for the test case minimizer: */
 
-#define TMIN_MAX_FILE (10 * 1024 * 1024L)
+#define TMIN_MAX_FILE (10 * 1024 * 1024)
 
 /* Block normalization steps for afl-tmin: */
 
@@ -270,8 +267,8 @@
    (first value), and to keep in memory as candidates. The latter should be much
    higher than the former. */
 
-#define USE_AUTO_EXTRAS 4096
-#define MAX_AUTO_EXTRAS (USE_AUTO_EXTRAS * 8)
+#define USE_AUTO_EXTRAS 128
+#define MAX_AUTO_EXTRAS (USE_AUTO_EXTRAS * 64)
 
 /* Scaling factor for the effector map used to skip some of the more
    expensive deterministic steps. The actual divisor is set to
@@ -292,11 +289,10 @@
 
 #define UI_TARGET_HZ 5
 
-/* Fuzzer stats file, queue stats and plot update intervals (sec): */
+/* Fuzzer stats file and plot update intervals (sec): */
 
 #define STATS_UPDATE_SEC 60
 #define PLOT_UPDATE_SEC 5
-#define QUEUE_UPDATE_SEC 1800
 
 /* Smoothing divisor for CPU load and exec speed stats (1 - no smoothing). */
 
@@ -356,10 +352,9 @@
       65535,      /* Overflow unsig 16-bit when incremented  */ \
       65536,      /* Overflow unsig 16 bit                   */ \
       100663045,  /* Large positive number (endian-agnostic) */ \
-      2139095040, /* float infinite                          */ \
       2147483647                 /* Overflow signed 32-bit when incremented */
 
-#define INTERESTING_32_LEN 9
+#define INTERESTING_32_LEN 8
 
 /***********************************************************
  *                                                         *
@@ -367,9 +362,9 @@
  *                                                         *
  ***********************************************************/
 
-/* Call count interval between reseeding the PRNG from /dev/urandom: */
+/* Call count interval between reseeding the libc PRNG from /dev/urandom: */
 
-#define RESEED_RNG 2500000
+#define RESEED_RNG 100000
 
 /* The default maximum testcase cache size in MB, 0 = disable.
    A value between 50 and 250 is a good default value. Note that the
@@ -443,18 +438,7 @@
    after changing this - otherwise, SEGVs may ensue. */
 
 #define MAP_SIZE_POW2 16
-
-/* Do not change this unless you really know what you are doing. */
-
 #define MAP_SIZE (1U << MAP_SIZE_POW2)
-#if MAP_SIZE <= 65536
-  #define MAP_INITIAL_SIZE (2 << 20)  // = 2097152
-#else
-  #define MAP_INITIAL_SIZE MAP_SIZE
-#endif
-
-/* Map size for traced binary */
-#define LLM_MAP_SIZE MAP_SIZE
 
 /* Maximum allocator request size (keep well under INT_MAX): */
 
@@ -505,14 +489,10 @@
 
 #define AFL_TXT_MIN_LEN 12
 
-/* Maximum length of a queue input to be evaluated for "is_ascii"? */
-
-#define AFL_TXT_MAX_LEN 65535
-
 /* What is the minimum percentage of ascii characters present to be classifed
    as "is_ascii"? */
 
-#define AFL_TXT_MIN_PERCENT 99
+#define AFL_TXT_MIN_PERCENT 94
 
 /* How often to perform ASCII mutations 0 = disable, 1-8 are good values */
 

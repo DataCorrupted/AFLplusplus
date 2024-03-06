@@ -2,20 +2,20 @@
   american fuzzy lop++ - wrapper for llvm 11+ lld
   -----------------------------------------------
 
-  Written by Marc Heuse <mh@mh-sec.de> for AFL++
+  Written by Marc Heuse <mh@mh-sec.de> for afl++
 
   Maintained by Marc Heuse <mh@mh-sec.de>,
                 Heiko Eißfeldt <heiko.eissfeldt@hexco.de>
                 Andrea Fioraldi <andreafioraldi@gmail.com>
                 Dominik Maier <domenukk@gmail.com>
 
-  Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+  Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
   You may obtain a copy of the License at:
 
-    https://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
   The sole purpose of this wrapper is to preprocess clang LTO files when
   linking with lld and performing the instrumentation on the whole program.
@@ -23,9 +23,7 @@
 */
 
 #define AFL_MAIN
-#ifndef _GNU_SOURCE
-  #define _GNU_SOURCE
-#endif
+#define _GNU_SOURCE
 
 #include "config.h"
 #include "types.h"
@@ -39,7 +37,6 @@
 #include <time.h>
 #include <ctype.h>
 #include <fcntl.h>
-#include <limits.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -47,6 +44,11 @@
 #include <sys/time.h>
 
 #include <dirent.h>
+
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || \
+    defined(__DragonFly__)
+  #include <limits.h>
+#endif
 
 #ifdef __APPLE__
   #include <sys/syslimits.h>
@@ -84,7 +86,7 @@ static void edit_params(int argc, char **argv) {
     for (i = 1; i < (u32)argc; i++) {
 
       if (strstr(argv[i], "/afl-llvm-rt-lto.o") != NULL) rt_lto_present = 1;
-      if (strstr(argv[i], "/afl-compiler-rt.o") != NULL) rt_present = 1;
+      if (strstr(argv[i], "/afl-llvm-rt.o") != NULL) rt_present = 1;
       if (strstr(argv[i], "/afl-llvm-lto-instr") != NULL) inst_present = 1;
 
     }
@@ -208,7 +210,7 @@ static void edit_params(int argc, char **argv) {
 
     if (strcmp(argv[i], "--afl") == 0) {
 
-      if (!be_quiet) OKF("AFL++ test command line flag detected, exiting.");
+      if (!be_quiet) OKF("afl++ test command line flag detected, exiting.");
       exit(0);
 
     }
@@ -235,8 +237,7 @@ static void edit_params(int argc, char **argv) {
       }
 
       if (!rt_present)
-        ld_params[ld_param_cnt++] =
-            alloc_printf("%s/afl-compiler-rt.o", afl_path);
+        ld_params[ld_param_cnt++] = alloc_printf("%s/afl-llvm-rt.o", afl_path);
       if (!rt_lto_present)
         ld_params[ld_param_cnt++] =
             alloc_printf("%s/afl-llvm-rt-lto.o", afl_path);

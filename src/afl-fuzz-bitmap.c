@@ -9,13 +9,13 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     https://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
    This is the real deal: the program takes an instrumented binary and
    attempts a variety of basic fuzzing tricks, paying close attention to
@@ -58,7 +58,7 @@ void write_bitmap(afl_state_t *afl) {
 u32 count_bits(afl_state_t *afl, u8 *mem) {
 
   u32 *ptr = (u32 *)mem;
-  u32  i = ((afl->fsrv.real_map_size + 3) >> 2);
+  u32  i = (afl->fsrv.map_size >> 2);
   u32  ret = 0;
 
   while (i--) {
@@ -68,7 +68,7 @@ u32 count_bits(afl_state_t *afl, u8 *mem) {
     /* This gets called on the inverse, virgin bitmap; optimize for sparse
        data. */
 
-    if (likely(v == 0xffffffff)) {
+    if (v == 0xffffffff) {
 
       ret += 32;
       continue;
@@ -92,14 +92,14 @@ u32 count_bits(afl_state_t *afl, u8 *mem) {
 u32 count_bytes(afl_state_t *afl, u8 *mem) {
 
   u32 *ptr = (u32 *)mem;
-  u32  i = ((afl->fsrv.real_map_size + 3) >> 2);
+  u32  i = (afl->fsrv.map_size >> 2);
   u32  ret = 0;
 
   while (i--) {
 
     u32 v = *(ptr++);
 
-    if (likely(!v)) { continue; }
+    if (!v) { continue; }
     if (v & 0x000000ffU) { ++ret; }
     if (v & 0x0000ff00U) { ++ret; }
     if (v & 0x00ff0000U) { ++ret; }
@@ -117,7 +117,7 @@ u32 count_bytes(afl_state_t *afl, u8 *mem) {
 u32 count_non_255_bytes(afl_state_t *afl, u8 *mem) {
 
   u32 *ptr = (u32 *)mem;
-  u32  i = ((afl->fsrv.real_map_size + 3) >> 2);
+  u32  i = (afl->fsrv.map_size >> 2);
   u32  ret = 0;
 
   while (i--) {
@@ -127,7 +127,7 @@ u32 count_non_255_bytes(afl_state_t *afl, u8 *mem) {
     /* This is called on the virgin bitmap, so optimize for the most likely
        case. */
 
-    if (likely(v == 0xffffffffU)) { continue; }
+    if (v == 0xffffffffU) { continue; }
     if ((v & 0x000000ffU) != 0x000000ffU) { ++ret; }
     if ((v & 0x0000ff00U) != 0x0000ff00U) { ++ret; }
     if ((v & 0x00ff0000U) != 0x00ff0000U) { ++ret; }
@@ -143,9 +143,17 @@ u32 count_non_255_bytes(afl_state_t *afl, u8 *mem) {
    and replacing it with 0x80 or 0x01 depending on whether the tuple
    is hit or not. Called on every new crash or timeout, should be
    reasonably fast. */
+#define TIMES4(x) x, x, x, x
+#define TIMES8(x) TIMES4(x), TIMES4(x)
+#define TIMES16(x) TIMES8(x), TIMES8(x)
+#define TIMES32(x) TIMES16(x), TIMES16(x)
+#define TIMES64(x) TIMES32(x), TIMES32(x)
+#define TIMES255(x)                                                      \
+  TIMES64(x), TIMES64(x), TIMES64(x), TIMES32(x), TIMES16(x), TIMES8(x), \
+      TIMES4(x), x, x, x
 const u8 simplify_lookup[256] = {
 
-    [0] = 1, [1 ... 255] = 128
+    [0] = 1, [1] = TIMES255(128)
 
 };
 
@@ -159,13 +167,20 @@ const u8 count_class_lookup8[256] = {
     [1] = 1,
     [2] = 2,
     [3] = 4,
-    [4 ... 7] = 8,
-    [8 ... 15] = 16,
-    [16 ... 31] = 32,
-    [32 ... 127] = 64,
-    [128 ... 255] = 128
+    [4] = TIMES4(8),
+    [8] = TIMES8(16),
+    [16] = TIMES16(32),
+    [32] = TIMES32(64),
+    [128] = TIMES64(128)
 
 };
+
+#undef TIMES255
+#undef TIMES64
+#undef TIMES32
+#undef TIMES16
+#undef TIMES8
+#undef TIMES4
 
 u16 count_class_lookup16[65536];
 
@@ -208,38 +223,20 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
 
   u64 *current = (u64 *)afl->fsrv.trace_bits;
   u64 *virgin = (u64 *)virgin_map;
-  // u64 *llm_vir = (u64 *)afl->llm_virgin_bits;
 
-  u32 i = ((afl->fsrv.real_map_size + 7) >> 3);
+  u32 i = (afl->fsrv.map_size >> 3);
 
 #else
 
   u32 *current = (u32 *)afl->fsrv.trace_bits;
   u32 *virgin = (u32 *)virgin_map;
-  // u32 *llm_vir = (u32 *)afl->llm_virgin_bits;
 
-  u32 i = ((afl->fsrv.real_map_size + 3) >> 2);
+  u32 i = (afl->fsrv.map_size >> 2);
 
 #endif                                                     /* ^WORD_SIZE_64 */
 
   u8 ret = 0;
-  // double reward=0;
   while (i--) {
-    // if(afl->from_llm){
-    //   u8 iter = 8;
-    //   u8 *cur = (u8 *)current;
-    //   u8 *vir = (u8 *)llm_vir;
-    //   while(iter--){
-    //     if (cur[iter]){
-    //       if (vir[iter] == 0xff) // Find new path
-    //         reward+=1.5;
-    //       else if (vir[iter]>250) // 1/2 power (visited times + 2)
-    //         reward += 1.0 / (double)(1<<(256-(int)vir[iter]));
-    //       vir[iter] = (vir[iter] << 1) + (~vir[iter]);
-    //     }
-    //   }
-    //   llm_vir++;
-    // }
 
     if (unlikely(*current)) discover_word(&ret, current, virgin);
 
@@ -250,33 +247,7 @@ inline u8 has_new_bits(afl_state_t *afl, u8 *virgin_map) {
 
   if (unlikely(ret) && likely(virgin_map == afl->virgin_bits))
     afl->bitmap_changed = 1;
-  
-  // If this seed is from LLM send reward to LLM
-  if (afl->from_llm){
-    // Create or open the message queue
-    // int msqid = msgget((key_t)4321, IPC_CREAT | 0666);
-    // if (msqid == -1) {
-    //   perror("msgget() failed");
-    //   exit(1);
-    // }
-    // send the uid, reward to LLM
-    message_reward_t rw_msg;
 
-    rw_msg.data_num[0] = afl->unique_id;
-    double reward = 0.0;
-    if (ret > 0) reward=2.0; //reward=(reward+1)*2; // Extra bonus to find new path in all map
-    // else reward*=0.8;
-    printf("%d ret::rwd %d %f\n",afl->unique_id, ret,reward);
-    rw_msg.data_num[1] = (int)(reward*100);
-    rw_msg.data_type = TYPE_REWARD;
-    
-    // int snd_status = msgsnd(msqid, &rw_msg, sizeof(rw_msg.data_num), 0);
-    // if (snd_status == -1) {
-    //   printf("send rewards ERROR\n");
-    //   perror("msgsnd() failed");
-    //   exit(1);
-    // }
-  }
   return ret;
 
 }
@@ -329,33 +300,12 @@ void minimize_bits(afl_state_t *afl, u8 *dst, u8 *src) {
 
 }
 
-void printBuffer(u8 *out_buf, size_t size) {
-    if (out_buf == NULL) {
-        printf("Buffer is null.\n");
-        return;
-    }
-
-    for (size_t i = 0; i < size; i++) {
-        printf("%02x ", out_buf[i]);
-    }
-    printf("\n");
-}
-
 #ifndef SIMPLE_FILES
 
 /* Construct a file name for a new test case, capturing the operation
    that led to its discovery. Returns a ptr to afl->describe_op_buf_256. */
 
 u8 *describe_op(afl_state_t *afl, u8 new_bits, size_t max_description_len) {
-
-  u8 is_timeout = 0;
-
-  if (new_bits & 0xf0) {
-
-    new_bits -= 0x80;
-    is_timeout = 1;
-
-  }
 
   size_t real_max_len =
       MIN(max_description_len, sizeof(afl->describe_op_buf_256));
@@ -375,9 +325,8 @@ u8 *describe_op(afl_state_t *afl, u8 new_bits, size_t max_description_len) {
 
     }
 
-    sprintf(ret + strlen(ret), ",time:%llu,execs:%llu",
-            get_cur_time() + afl->prev_run_time - afl->start_time,
-            afl->fsrv.total_execs);
+    sprintf(ret + strlen(ret), ",time:%llu",
+            get_cur_time() + afl->prev_run_time - afl->start_time);
 
     if (afl->current_custom_fuzz &&
         afl->current_custom_fuzz->afl_custom_describe) {
@@ -390,7 +339,6 @@ u8 *describe_op(afl_state_t *afl, u8 new_bits, size_t max_description_len) {
       ret[len_current] = '\0';
 
       ssize_t size_left = real_max_len - len_current - strlen(",+cov") - 2;
-      if (is_timeout) { size_left -= strlen(",+tout"); }
       if (unlikely(size_left <= 0)) FATAL("filename got too long");
 
       const char *custom_description =
@@ -435,8 +383,6 @@ u8 *describe_op(afl_state_t *afl, u8 new_bits, size_t max_description_len) {
     }
 
   }
-
-  if (is_timeout) { strcat(ret, ",+tout"); }
 
   if (new_bits == 2) { strcat(ret, ",+cov"); }
 
@@ -491,10 +437,10 @@ void write_crash_readme(afl_state_t *afl) {
       "them to a vendor? Check out the afl-tmin that comes with the fuzzer!\n\n"
 
       "Found any cool bugs in open-source tools using afl-fuzz? If yes, please "
-      "post\n"
-      "to https://github.com/AFLplusplus/AFLplusplus/issues/286 once the "
-      "issues\n"
-      " are fixed :)\n\n",
+      "drop\n"
+      "an mail at <afl-users@googlegroups.com> once the issues are fixed\n\n"
+
+      "  https://github.com/AFLplusplus/AFLplusplus\n\n",
 
       afl->orig_cmdline,
       stringify_mem_size(val_buf, sizeof(val_buf),
@@ -513,33 +459,24 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
 
   if (unlikely(len == 0)) { return 0; }
 
-  if (unlikely(fault == FSRV_RUN_TMOUT && afl->afl_env.afl_ignore_timeouts)) {
-
-    return 0;
-
-  }
-
-  u8  fn[PATH_MAX];
   u8 *queue_fn = "";
-  u8  new_bits = 0, keeping = 0, res, classified = 0, is_timeout = 0,
-     need_hash = 1;
+  u8  new_bits = '\0';
   s32 fd;
+  u8  keeping = 0, res, classified = 0;
   u64 cksum = 0;
+
+  u8 fn[PATH_MAX];
 
   /* Update path frequency. */
 
   /* Generating a hash on every input is super expensive. Bad idea and should
      only be used for special schedules */
-  if (likely(afl->schedule >= FAST && afl->schedule <= RARE)) {
-
-    classify_counts(&afl->fsrv);
-    classified = 1;
-    need_hash = 0;
+  if (unlikely(afl->schedule >= FAST && afl->schedule <= RARE)) {
 
     cksum = hash64(afl->fsrv.trace_bits, afl->fsrv.map_size, HASH_CONST);
 
     /* Saturated increment */
-    if (likely(afl->n_fuzz[cksum % N_FUZZ_SIZE] < 0xFFFFFFFF))
+    if (afl->n_fuzz[cksum % N_FUZZ_SIZE] < 0xFFFFFFFF)
       afl->n_fuzz[cksum % N_FUZZ_SIZE]++;
 
   }
@@ -549,16 +486,7 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
 
-    if (likely(classified)) {
-      new_bits = has_new_bits(afl, afl->virgin_bits);
-
-    } else {
-
-      new_bits = has_new_bits_unclassified(afl, afl->virgin_bits);
-
-      if (unlikely(new_bits)) { classified = 1; }
-
-    }
+    new_bits = has_new_bits_unclassified(afl, afl->virgin_bits);
 
     if (likely(!new_bits)) {
 
@@ -567,19 +495,18 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
 
     }
 
-  save_to_queue:
+    classified = new_bits;
 
 #ifndef SIMPLE_FILES
 
-    queue_fn =
-        alloc_printf("%s/queue/id:%06u,%s", afl->out_dir, afl->queued_items,
-                     describe_op(afl, new_bits + is_timeout,
-                                 NAME_MAX - strlen("id:000000,")));
+    queue_fn = alloc_printf(
+        "%s/queue/id:%06u,%s", afl->out_dir, afl->queued_paths,
+        describe_op(afl, new_bits, NAME_MAX - strlen("id:000000,")));
 
 #else
 
     queue_fn =
-        alloc_printf("%s/queue/id_%06u", afl->out_dir, afl->queued_items);
+        alloc_printf("%s/queue/id_%06u", afl->out_dir, afl->queued_paths);
 
 #endif                                                    /* ^!SIMPLE_FILES */
     fd = open(queue_fn, O_WRONLY | O_CREAT | O_EXCL, DEFAULT_PERMISSION);
@@ -587,19 +514,6 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
     ck_write(fd, mem, len, queue_fn);
     close(fd);
     add_to_queue(afl, queue_fn, len, 0);
-
-    if (unlikely(afl->fuzz_mode) &&
-        likely(afl->switch_fuzz_mode && !afl->non_instrumented_mode)) {
-
-      if (afl->afl_env.afl_no_ui) {
-
-        ACTF("New coverage found, switching back to exploration mode.");
-
-      }
-
-      afl->fuzz_mode = 0;
-
-    }
 
 #ifdef INTROSPECTION
     if (afl->custom_mutators_count && afl->current_custom_fuzz) {
@@ -637,17 +551,13 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
 
     }
 
-    if (unlikely(need_hash && new_bits)) {
-
-      /* due to classify counts we have to recalculate the checksum */
-      afl->queue_top->exec_cksum =
+    if (cksum)
+      afl->queue_top->exec_cksum = cksum;
+    else
+      cksum = afl->queue_top->exec_cksum =
           hash64(afl->fsrv.trace_bits, afl->fsrv.map_size, HASH_CONST);
-      need_hash = 0;
 
-    }
-
-    /* For AFLFast schedules we update the new queue entry */
-    if (likely(cksum)) {
+    if (afl->schedule >= FAST && afl->schedule <= RARE) {
 
       afl->queue_top->n_fuzz_entry = cksum % N_FUZZ_SIZE;
       afl->n_fuzz[afl->queue_top->n_fuzz_entry] = 1;
@@ -656,6 +566,7 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
 
     /* Try to calibrate inline; this also calls update_bitmap_score() when
        successful. */
+
     res = calibrate_case(afl, afl->queue_top, mem, afl->queue_cycle - 1, 0);
 
     if (unlikely(res == FSRV_RUN_ERROR)) {
@@ -685,11 +596,11 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
 
       ++afl->total_tmouts;
 
-      if (afl->saved_hangs >= KEEP_UNIQUE_HANG) { return keeping; }
+      if (afl->unique_hangs >= KEEP_UNIQUE_HANG) { return keeping; }
 
       if (likely(!afl->non_instrumented_mode)) {
 
-        if (unlikely(!classified)) {
+        if (!classified) {
 
           classify_counts(&afl->fsrv);
           classified = 1;
@@ -702,7 +613,7 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
 
       }
 
-      is_timeout = 0x80;
+      ++afl->unique_tmouts;
 #ifdef INTROSPECTION
       if (afl->custom_mutators_count && afl->current_custom_fuzz) {
 
@@ -738,19 +649,8 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
 
       if (afl->fsrv.exec_tmout < afl->hang_tmout) {
 
-        u8  new_fault;
-        u32 tmp_len = write_to_testcase(afl, &mem, len, 0);
-
-        if (likely(tmp_len)) {
-
-          len = tmp_len;
-
-        } else {
-
-          len = write_to_testcase(afl, &mem, len, 1);
-
-        }
-
+        u8 new_fault;
+        write_to_testcase(afl, mem, len);
         new_fault = fuzz_run_target(afl, &afl->fsrv, afl->hang_tmout);
         classify_counts(&afl->fsrv);
 
@@ -764,37 +664,24 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
 
         }
 
-        if (afl->stop_soon || new_fault != FSRV_RUN_TMOUT) {
-
-          if (afl->afl_env.afl_keep_timeouts) {
-
-            ++afl->saved_tmouts;
-            goto save_to_queue;
-
-          } else {
-
-            return keeping;
-
-          }
-
-        }
+        if (afl->stop_soon || new_fault != FSRV_RUN_TMOUT) { return keeping; }
 
       }
 
 #ifndef SIMPLE_FILES
 
       snprintf(fn, PATH_MAX, "%s/hangs/id:%06llu,%s", afl->out_dir,
-               afl->saved_hangs,
+               afl->unique_hangs,
                describe_op(afl, 0, NAME_MAX - strlen("id:000000,")));
 
 #else
 
       snprintf(fn, PATH_MAX, "%s/hangs/id_%06llu", afl->out_dir,
-               afl->saved_hangs);
+               afl->unique_hangs);
 
 #endif                                                    /* ^!SIMPLE_FILES */
 
-      ++afl->saved_hangs;
+      ++afl->unique_hangs;
 
       afl->last_hang_time = get_cur_time();
 
@@ -810,16 +697,11 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
 
       ++afl->total_crashes;
 
-      if (afl->saved_crashes >= KEEP_UNIQUE_CRASH) { return keeping; }
+      if (afl->unique_crashes >= KEEP_UNIQUE_CRASH) { return keeping; }
 
       if (likely(!afl->non_instrumented_mode)) {
 
-        if (unlikely(!classified)) {
-
-          classify_counts(&afl->fsrv);
-          classified = 1;
-
-        }
+        if (!classified) { classify_counts(&afl->fsrv); }
 
         simplify_trace(afl, afl->fsrv.trace_bits);
 
@@ -827,27 +709,22 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
 
       }
 
-      if (unlikely(!afl->saved_crashes) &&
-          (afl->afl_env.afl_no_crash_readme != 1)) {
-
-        write_crash_readme(afl);
-
-      }
+      if (unlikely(!afl->unique_crashes)) { write_crash_readme(afl); }
 
 #ifndef SIMPLE_FILES
 
       snprintf(fn, PATH_MAX, "%s/crashes/id:%06llu,sig:%02u,%s", afl->out_dir,
-               afl->saved_crashes, afl->fsrv.last_kill_signal,
+               afl->unique_crashes, afl->fsrv.last_kill_signal,
                describe_op(afl, 0, NAME_MAX - strlen("id:000000,sig:00,")));
 
 #else
 
       snprintf(fn, PATH_MAX, "%s/crashes/id_%06llu_%02u", afl->out_dir,
-               afl->saved_crashes, afl->fsrv.last_kill_signal);
+               afl->unique_crashes, afl->last_kill_signal);
 
 #endif                                                    /* ^!SIMPLE_FILES */
 
-      ++afl->saved_crashes;
+      ++afl->unique_crashes;
 #ifdef INTROSPECTION
       if (afl->custom_mutators_count && afl->current_custom_fuzz) {
 
@@ -910,26 +787,6 @@ save_if_interesting(afl_state_t *afl, void *mem, u32 len, u8 fault) {
   if (unlikely(fd < 0)) { PFATAL("Unable to create '%s'", fn); }
   ck_write(fd, mem, len, fn);
   close(fd);
-
-#ifdef __linux__
-  if (afl->fsrv.nyx_mode && fault == FSRV_RUN_CRASH) {
-
-    u8 fn_log[PATH_MAX];
-
-    (void)(snprintf(fn_log, PATH_MAX, "%s.log", fn) + 1);
-    fd = open(fn_log, O_WRONLY | O_CREAT | O_EXCL, DEFAULT_PERMISSION);
-    if (unlikely(fd < 0)) { PFATAL("Unable to create '%s'", fn_log); }
-
-    u32 nyx_aux_string_len = afl->fsrv.nyx_handlers->nyx_get_aux_string(
-        afl->fsrv.nyx_runner, afl->fsrv.nyx_aux_string,
-        afl->fsrv.nyx_aux_string_len);
-
-    ck_write(fd, afl->fsrv.nyx_aux_string, nyx_aux_string_len, fn_log);
-    close(fd);
-
-  }
-
-#endif
 
   return keeping;
 

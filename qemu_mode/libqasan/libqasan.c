@@ -1,5 +1,5 @@
 /*******************************************************************************
-Copyright (c) 2019-2023, Andrea Fioraldi
+Copyright (c) 2019-2020, Andrea Fioraldi
 
 
 Redistribution and use in source and binary forms, with or without
@@ -69,6 +69,8 @@ __attribute__((constructor)) void __libqasan_init() {
   __libqasan_is_initialized = 1;
 
   __libqasan_init_hooks();
+
+  if (getenv("AFL_INST_LIBS") || getenv("QASAN_HOTPACH")) __libqasan_hotpatch();
 
   if (getenv("AFL_INST_LIBS") || getenv("QASAN_HOTPACH")) __libqasan_hotpatch();
 

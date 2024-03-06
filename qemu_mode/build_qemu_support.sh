@@ -13,13 +13,13 @@
 # counters by Andrea Fioraldi <andreafioraldi@gmail.com>
 #
 # Copyright 2015, 2016, 2017 Google Inc. All rights reserved.
-# Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+# Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at:
 #
-#   https://www.apache.org/licenses/LICENSE-2.0
+#   http://www.apache.org/licenses/LICENSE-2.0
 #
 # This script downloads, patches, and builds a version of QEMU with
 # minor tweaks to allow non-instrumented binaries to be run under
@@ -77,9 +77,9 @@ if [ $? -eq 0 ]; then
   git submodule update ./qemuafl 2>/dev/null # ignore errors
 else
   echo "[*] cloning qemuafl"
-  test -d qemuafl/.git || {
+  test -d qemuafl || {
     CNT=1
-    while [ '!' -d qemuafl/.git -a "$CNT" -lt 4 ]; do
+    while [ '!' -d qemuafl -a "$CNT" -lt 4 ]; do
       echo "Trying to clone qemuafl (attempt $CNT/3)"
       git clone --depth 1 https://github.com/AFLplusplus/qemuafl
       CNT=`expr "$CNT" + 1`
@@ -87,7 +87,7 @@ else
   }
 fi
 
-test -e qemuafl/.git || { echo "[-] Not checked out, please install git or check your internet connection." ; exit 1 ; }
+test -d qemuafl || { echo "[-] Not checked out, please install git or check your internet connection." ; exit 1 ; }
 echo "[+] Got qemuafl."
 
 cd "qemuafl" || exit 1
@@ -96,7 +96,6 @@ if [ -n "$NO_CHECKOUT" ]; then
 else
   echo "[*] Checking out $QEMUAFL_VERSION"
   sh -c 'git stash' 1>/dev/null 2>/dev/null
-  git pull
   git checkout "$QEMUAFL_VERSION" || echo Warning: could not check out to commit $QEMUAFL_VERSION
 fi
 
@@ -251,7 +250,6 @@ else
     --disable-qom-cast-debug \
     --disable-stack-protector \
     --disable-werror \
-    --disable-docs \
     "
 
 fi
@@ -274,7 +272,7 @@ echo "[+] Configuration complete."
 
 echo "[*] Attempting to build QEMU (fingers crossed!)..."
 
-make -j$(nproc) || exit 1
+make -j `nproc` || exit 1
 
 echo "[+] Build process successful!"
 
@@ -356,30 +354,26 @@ fi
 
 if ! command -v "$CROSS" > /dev/null ; then
   if [ "$CPU_TARGET" = "$(uname -m)" ] ; then
-    echo "[+] Building AFL++ qemu support libraries with CC=$CC"
+    echo "[+] Building afl++ qemu support libraries with CC=$CC"
     echo "[+] Building libcompcov ..."
     make -C libcompcov && echo "[+] libcompcov ready"
     echo "[+] Building unsigaction ..."
     make -C unsigaction && echo "[+] unsigaction ready"
-    echo "[+] Building fastexit ..."
-    make -C fastexit && echo "[+] fastexit ready"
     echo "[+] Building libqasan ..."
-    make -C libqasan && echo "[+] libqasan ready"
+    make -C libqasan && echo "[+] unsigaction ready"
     echo "[+] Building qemu libfuzzer helpers ..."
     make -C ../utils/aflpp_driver
   else
     echo "[!] Cross compiler $CROSS could not be found, cannot compile libcompcov libqasan and unsigaction"
   fi
 else
-  echo "[+] Building AFL++ qemu support libraries with CC=\"$CROSS $CROSS_FLAGS\""
+  echo "[+] Building afl++ qemu support libraries with CC=\"$CROSS $CROSS_FLAGS\""
   echo "[+] Building libcompcov ..."
   make -C libcompcov CC="$CROSS $CROSS_FLAGS" && echo "[+] libcompcov ready"
   echo "[+] Building unsigaction ..."
   make -C unsigaction CC="$CROSS $CROSS_FLAGS" && echo "[+] unsigaction ready"
-  echo "[+] Building fastexit ..."
-  make -C fastexit CC="$CROSS $CROSS_FLAGS" && echo "[+] fastexit ready"
   echo "[+] Building libqasan ..."
-  make -C libqasan CC="$CROSS $CROSS_FLAGS" && echo "[+] libqasan ready"
+  make -C libqasan CC="$CROSS $CROSS_FLAGS" && echo "[+] unsigaction ready"
 fi
 
 echo "[+] All done for qemu_mode, enjoy!"

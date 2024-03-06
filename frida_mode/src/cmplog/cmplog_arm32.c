@@ -1,5 +1,7 @@
 #include "frida-gumjs.h"
 
+#include "debug.h"
+
 #include "frida_cmplog.h"
 #include "util.h"
 
@@ -9,7 +11,7 @@ void cmplog_instrument(const cs_insn *instr, GumStalkerIterator *iterator) {
   UNUSED_PARAMETER(instr);
   UNUSED_PARAMETER(iterator);
   if (__afl_cmp_map == NULL) { return; }
-  FFATAL("CMPLOG mode not supported on this architecture");
+  FATAL("CMPLOG mode not supported on this architecture");
 
 }
 

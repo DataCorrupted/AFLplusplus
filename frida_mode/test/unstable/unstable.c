@@ -3,7 +3,7 @@
    --------------------------------------------------------
    Originally written by Michal Zalewski
    Copyright 2014 Google Inc. All rights reserved.
-   Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
@@ -14,7 +14,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/time.h>
 
 #ifdef __APPLE__
   #define TESTINSTR_SECTION
@@ -26,10 +25,8 @@ void LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   if (size < 1) return;
 
-  struct timeval tv = {0};
-  if (gettimeofday(&tv, NULL) < 0) return;
-
-  if ((tv.tv_usec % 2) == 0) {
+  int r = rand();
+  if ((r % 2) == 0) {
     printf ("Hooray all even\n");
   } else {
     printf ("Hmm that's odd\n");

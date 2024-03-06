@@ -5,13 +5,13 @@
    Written by Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2015, 2016 Google Inc. All rights reserved.
-   Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     https://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
 */
 
@@ -28,29 +28,19 @@
 #include "llvm/Config/llvm-config.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#if LLVM_MAJOR >= 11
-  #include "llvm/Passes/PassPlugin.h"
-  #include "llvm/Passes/PassBuilder.h"
-  #include "llvm/IR/PassManager.h"
-#else
-  #include "llvm/IR/LegacyPassManager.h"
-  #include "llvm/Transforms/IPO/PassManagerBuilder.h"
-#endif
+#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Pass.h"
 #include "llvm/Analysis/ValueTracking.h"
-#if LLVM_VERSION_MAJOR >= 14                /* how about stable interfaces? */
-  #include "llvm/Passes/OptimizationLevel.h"
-#endif
 
-#if LLVM_VERSION_MAJOR >= 4 || \
+#if LLVM_VERSION_MAJOR > 3 || \
     (LLVM_VERSION_MAJOR == 3 && LLVM_VERSION_MINOR > 4)
   #include "llvm/IR/Verifier.h"
   #include "llvm/IR/DebugInfo.h"
-  #include "llvm/Support/raw_ostream.h"
 #else
   #include "llvm/Analysis/Verifier.h"
   #include "llvm/DebugInfo.h"
@@ -64,17 +54,6 @@ using namespace llvm;
 
 namespace {
 
-#if LLVM_MAJOR >= 11                                /* use new pass manager */
-class CmpLogInstructions : public PassInfoMixin<CmpLogInstructions> {
-
- public:
-  CmpLogInstructions() {
-
-    initInstrumentList();
-
-  }
-
-#else
 class CmpLogInstructions : public ModulePass {
 
  public:
@@ -85,25 +64,18 @@ class CmpLogInstructions : public ModulePass {
 
   }
 
-#endif
-
-#if LLVM_MAJOR >= 11                                /* use new pass manager */
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
-#else
   bool runOnModule(Module &M) override;
 
-  #if LLVM_VERSION_MAJOR >= 4
-  StringRef getPassName() const override {
-
-  #else
+#if LLVM_VERSION_MAJOR < 4
   const char *getPassName() const override {
 
-  #endif
+#else
+  StringRef getPassName() const override {
+
+#endif
     return "cmplog instructions";
 
   }
-
-#endif
 
  private:
   bool hookInstrs(Module &M);
@@ -112,31 +84,7 @@ class CmpLogInstructions : public ModulePass {
 
 }  // namespace
 
-#if LLVM_MAJOR >= 11
-extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK
-llvmGetPassPluginInfo() {
-
-  return {LLVM_PLUGIN_API_VERSION, "cmploginstructions", "v0.1",
-          /* lambda to insert our pass into the pass pipeline. */
-          [](PassBuilder &PB) {
-
-  #if LLVM_VERSION_MAJOR <= 13
-            using OptimizationLevel = typename PassBuilder::OptimizationLevel;
-  #endif
-            PB.registerOptimizerLastEPCallback(
-                [](ModulePassManager &MPM, OptimizationLevel OL) {
-
-                  MPM.addPass(CmpLogInstructions());
-
-                });
-
-          }};
-
-}
-
-#else
 char CmpLogInstructions::ID = 0;
-#endif
 
 template <class Iterator>
 Iterator Unique(Iterator first, Iterator last) {
@@ -156,19 +104,20 @@ Iterator Unique(Iterator first, Iterator last) {
 bool CmpLogInstructions::hookInstrs(Module &M) {
 
   std::vector<Instruction *> icomps;
-  LLVMContext               &C = M.getContext();
+  std::vector<SwitchInst *>  switches;
+  LLVMContext &              C = M.getContext();
 
-  Type        *VoidTy = Type::getVoidTy(C);
+  Type *       VoidTy = Type::getVoidTy(C);
   IntegerType *Int8Ty = IntegerType::getInt8Ty(C);
   IntegerType *Int16Ty = IntegerType::getInt16Ty(C);
   IntegerType *Int32Ty = IntegerType::getInt32Ty(C);
   IntegerType *Int64Ty = IntegerType::getInt64Ty(C);
   IntegerType *Int128Ty = IntegerType::getInt128Ty(C);
 
-#if LLVM_VERSION_MAJOR >= 9
-  FunctionCallee
-#else
+#if LLVM_VERSION_MAJOR < 9
   Constant *
+#else
+  FunctionCallee
 #endif
       c1 = M.getOrInsertFunction("__cmplog_ins_hook1", VoidTy, Int8Ty, Int8Ty,
                                  Int8Ty
@@ -177,16 +126,16 @@ bool CmpLogInstructions::hookInstrs(Module &M) {
                                  NULL
 #endif
       );
-#if LLVM_VERSION_MAJOR >= 9
-  FunctionCallee cmplogHookIns1 = c1;
-#else
+#if LLVM_VERSION_MAJOR < 9
   Function *cmplogHookIns1 = cast<Function>(c1);
+#else
+  FunctionCallee cmplogHookIns1 = c1;
 #endif
 
-#if LLVM_VERSION_MAJOR >= 9
-  FunctionCallee
-#else
+#if LLVM_VERSION_MAJOR < 9
   Constant *
+#else
+  FunctionCallee
 #endif
       c2 = M.getOrInsertFunction("__cmplog_ins_hook2", VoidTy, Int16Ty, Int16Ty,
                                  Int8Ty
@@ -195,16 +144,16 @@ bool CmpLogInstructions::hookInstrs(Module &M) {
                                  NULL
 #endif
       );
-#if LLVM_VERSION_MAJOR >= 9
-  FunctionCallee cmplogHookIns2 = c2;
-#else
+#if LLVM_VERSION_MAJOR < 9
   Function *cmplogHookIns2 = cast<Function>(c2);
+#else
+  FunctionCallee cmplogHookIns2 = c2;
 #endif
 
-#if LLVM_VERSION_MAJOR >= 9
-  FunctionCallee
-#else
+#if LLVM_VERSION_MAJOR < 9
   Constant *
+#else
+  FunctionCallee
 #endif
       c4 = M.getOrInsertFunction("__cmplog_ins_hook4", VoidTy, Int32Ty, Int32Ty,
                                  Int8Ty
@@ -213,16 +162,16 @@ bool CmpLogInstructions::hookInstrs(Module &M) {
                                  NULL
 #endif
       );
-#if LLVM_VERSION_MAJOR >= 9
-  FunctionCallee cmplogHookIns4 = c4;
-#else
+#if LLVM_VERSION_MAJOR < 9
   Function *cmplogHookIns4 = cast<Function>(c4);
+#else
+  FunctionCallee cmplogHookIns4 = c4;
 #endif
 
-#if LLVM_VERSION_MAJOR >= 9
-  FunctionCallee
-#else
+#if LLVM_VERSION_MAJOR < 9
   Constant *
+#else
+  FunctionCallee
 #endif
       c8 = M.getOrInsertFunction("__cmplog_ins_hook8", VoidTy, Int64Ty, Int64Ty,
                                  Int8Ty
@@ -231,16 +180,16 @@ bool CmpLogInstructions::hookInstrs(Module &M) {
                                  NULL
 #endif
       );
-#if LLVM_VERSION_MAJOR >= 9
-  FunctionCallee cmplogHookIns8 = c8;
-#else
+#if LLVM_VERSION_MAJOR < 9
   Function *cmplogHookIns8 = cast<Function>(c8);
+#else
+  FunctionCallee cmplogHookIns8 = c8;
 #endif
 
-#if LLVM_VERSION_MAJOR >= 9
-  FunctionCallee
-#else
+#if LLVM_VERSION_MAJOR < 9
   Constant *
+#else
+  FunctionCallee
 #endif
       c16 = M.getOrInsertFunction("__cmplog_ins_hook16", VoidTy, Int128Ty,
                                   Int128Ty, Int8Ty
@@ -255,10 +204,10 @@ bool CmpLogInstructions::hookInstrs(Module &M) {
   FunctionCallee cmplogHookIns16 = c16;
 #endif
 
-#if LLVM_VERSION_MAJOR >= 9
-  FunctionCallee
-#else
+#if LLVM_VERSION_MAJOR < 9
   Constant *
+#else
+  FunctionCallee
 #endif
       cN = M.getOrInsertFunction("__cmplog_ins_hookN", VoidTy, Int128Ty,
                                  Int128Ty, Int8Ty, Int8Ty
@@ -267,28 +216,16 @@ bool CmpLogInstructions::hookInstrs(Module &M) {
                                  NULL
 #endif
       );
-#if LLVM_VERSION_MAJOR >= 9
-  FunctionCallee cmplogHookInsN = cN;
-#else
+#if LLVM_VERSION_MAJOR < 9
   Function *cmplogHookInsN = cast<Function>(cN);
+#else
+  FunctionCallee cmplogHookInsN = cN;
 #endif
-
-  GlobalVariable *AFLCmplogPtr = M.getNamedGlobal("__afl_cmp_map");
-
-  if (!AFLCmplogPtr) {
-
-    AFLCmplogPtr = new GlobalVariable(M, PointerType::get(Int8Ty, 0), false,
-                                      GlobalValue::ExternalWeakLinkage, 0,
-                                      "__afl_cmp_map");
-
-  }
-
-  Constant *Null = Constant::getNullValue(PointerType::get(Int8Ty, 0));
 
   /* iterate over all functions, bbs and instruction and add suitable calls */
   for (auto &F : M) {
 
-    if (!isInInstrumentList(&F, MNAME)) continue;
+    if (!isInInstrumentList(&F)) continue;
 
     for (auto &BB : F) {
 
@@ -298,6 +235,164 @@ bool CmpLogInstructions::hookInstrs(Module &M) {
         if ((selectcmpInst = dyn_cast<CmpInst>(&IN))) {
 
           icomps.push_back(selectcmpInst);
+
+        }
+
+        SwitchInst *switchInst = nullptr;
+        if ((switchInst = dyn_cast<SwitchInst>(BB.getTerminator()))) {
+
+          if (switchInst->getNumCases() > 1) { switches.push_back(switchInst); }
+
+        }
+
+      }
+
+    }
+
+  }
+
+  // unique the collected switches
+  switches.erase(Unique(switches.begin(), switches.end()), switches.end());
+
+  // Instrument switch values for cmplog
+  if (switches.size()) {
+
+    if (!be_quiet)
+      errs() << "Hooking " << switches.size() << " switch instructions\n";
+
+    for (auto &SI : switches) {
+
+      Value *       Val = SI->getCondition();
+      unsigned int  max_size = Val->getType()->getIntegerBitWidth(), cast_size;
+      unsigned char do_cast = 0;
+
+      if (!SI->getNumCases() || max_size < 16) {
+
+        // if (!be_quiet) errs() << "skip trivial switch..\n";
+        continue;
+
+      }
+
+      if (max_size % 8) {
+
+        max_size = (((max_size / 8) + 1) * 8);
+        do_cast = 1;
+
+      }
+
+      IRBuilder<> IRB(SI->getParent());
+      IRB.SetInsertPoint(SI);
+
+      if (max_size > 128) {
+
+        if (!be_quiet) {
+
+          fprintf(stderr,
+                  "Cannot handle this switch bit size: %u (truncating)\n",
+                  max_size);
+
+        }
+
+        max_size = 128;
+        do_cast = 1;
+
+      }
+
+      // do we need to cast?
+      switch (max_size) {
+
+        case 8:
+        case 16:
+        case 32:
+        case 64:
+        case 128:
+          cast_size = max_size;
+          break;
+        default:
+          cast_size = 128;
+          do_cast = 1;
+
+      }
+
+      Value *CompareTo = Val;
+
+      if (do_cast) {
+
+        CompareTo =
+            IRB.CreateIntCast(CompareTo, IntegerType::get(C, cast_size), false);
+
+      }
+
+      for (SwitchInst::CaseIt i = SI->case_begin(), e = SI->case_end(); i != e;
+           ++i) {
+
+#if LLVM_VERSION_MAJOR < 5
+        ConstantInt *cint = i.getCaseValue();
+#else
+        ConstantInt *cint = i->getCaseValue();
+#endif
+
+        if (cint) {
+
+          std::vector<Value *> args;
+          args.push_back(CompareTo);
+
+          Value *new_param = cint;
+
+          if (do_cast) {
+
+            new_param =
+                IRB.CreateIntCast(cint, IntegerType::get(C, cast_size), false);
+
+          }
+
+          if (new_param) {
+
+            args.push_back(new_param);
+            ConstantInt *attribute = ConstantInt::get(Int8Ty, 1);
+            args.push_back(attribute);
+            if (cast_size != max_size) {
+
+              ConstantInt *bitsize =
+                  ConstantInt::get(Int8Ty, (max_size / 8) - 1);
+              args.push_back(bitsize);
+
+            }
+
+            switch (cast_size) {
+
+              case 8:
+                IRB.CreateCall(cmplogHookIns1, args);
+                break;
+              case 16:
+                IRB.CreateCall(cmplogHookIns2, args);
+                break;
+              case 32:
+                IRB.CreateCall(cmplogHookIns4, args);
+                break;
+              case 64:
+                IRB.CreateCall(cmplogHookIns8, args);
+                break;
+              case 128:
+#ifdef WORD_SIZE_64
+                if (max_size == 128) {
+
+                  IRB.CreateCall(cmplogHookIns16, args);
+
+                } else {
+
+                  IRB.CreateCall(cmplogHookInsN, args);
+
+                }
+
+#endif
+                break;
+              default:
+                break;
+
+            }
+
+          }
 
         }
 
@@ -314,31 +409,19 @@ bool CmpLogInstructions::hookInstrs(Module &M) {
 
     for (auto &selectcmpInst : icomps) {
 
-      IRBuilder<> IRB2(selectcmpInst->getParent());
-      IRB2.SetInsertPoint(selectcmpInst);
-      LoadInst *CmpPtr = IRB2.CreateLoad(
-#if LLVM_VERSION_MAJOR >= 14
-          PointerType::get(Int8Ty, 0),
-#endif
-          AFLCmplogPtr);
-      CmpPtr->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
-      auto is_not_null = IRB2.CreateICmpNE(CmpPtr, Null);
-      auto ThenTerm =
-          SplitBlockAndInsertIfThen(is_not_null, selectcmpInst, false);
-
-      IRBuilder<> IRB(ThenTerm);
+      IRBuilder<> IRB(selectcmpInst->getParent());
+      IRB.SetInsertPoint(selectcmpInst);
 
       Value *op0 = selectcmpInst->getOperand(0);
       Value *op1 = selectcmpInst->getOperand(1);
-      Value *op0_saved = op0, *op1_saved = op1;
-      auto   ty0 = op0->getType();
-      auto   ty1 = op1->getType();
 
-      IntegerType *intTyOp0 = NULL;
-      IntegerType *intTyOp1 = NULL;
-      unsigned     max_size = 0, cast_size = 0;
-      unsigned     attr = 0, vector_cnt = 0, is_fp = 0;
-      CmpInst     *cmpInst = dyn_cast<CmpInst>(selectcmpInst);
+      IntegerType *        intTyOp0 = NULL;
+      IntegerType *        intTyOp1 = NULL;
+      unsigned             max_size = 0, cast_size = 0;
+      unsigned char        attr = 0;
+      std::vector<Value *> args;
+
+      CmpInst *cmpInst = dyn_cast<CmpInst>(selectcmpInst);
 
       if (!cmpInst) { continue; }
 
@@ -384,23 +467,7 @@ bool CmpLogInstructions::hookInstrs(Module &M) {
 
       if (selectcmpInst->getOpcode() == Instruction::FCmp) {
 
-        if (ty0->isVectorTy()) {
-
-          VectorType *tt = dyn_cast<VectorType>(ty0);
-          if (!tt) {
-
-            fprintf(stderr, "Warning: cmplog cmp vector is not a vector!\n");
-            continue;
-
-          }
-
-#if (LLVM_VERSION_MAJOR >= 12)
-          vector_cnt = tt->getElementCount().getKnownMinValue();
-          ty0 = tt->getElementType();
-#endif
-
-        }
-
+        auto ty0 = op0->getType();
         if (ty0->isHalfTy()
 #if LLVM_VERSION_MAJOR >= 11
             || ty0->isBFloatTy()
@@ -415,37 +482,13 @@ bool CmpLogInstructions::hookInstrs(Module &M) {
           max_size = 80;
         else if (ty0->isFP128Ty() || ty0->isPPC_FP128Ty())
           max_size = 128;
-#if (LLVM_VERSION_MAJOR >= 12)
-        else if (ty0->getTypeID() != llvm::Type::PointerTyID && !be_quiet)
-          fprintf(stderr, "Warning: unsupported cmp type for cmplog: %u!\n",
-                  ty0->getTypeID());
-#endif
 
         attr += 8;
-        is_fp = 1;
-        // fprintf(stderr, "HAVE FP %u!\n", vector_cnt);
 
       } else {
 
-        if (ty0->isVectorTy()) {
-
-#if (LLVM_VERSION_MAJOR >= 12)
-          VectorType *tt = dyn_cast<VectorType>(ty0);
-          if (!tt) {
-
-            fprintf(stderr, "Warning: cmplog cmp vector is not a vector!\n");
-            continue;
-
-          }
-
-          vector_cnt = tt->getElementCount().getKnownMinValue();
-          ty1 = ty0 = tt->getElementType();
-#endif
-
-        }
-
-        intTyOp0 = dyn_cast<IntegerType>(ty0);
-        intTyOp1 = dyn_cast<IntegerType>(ty1);
+        intTyOp0 = dyn_cast<IntegerType>(op0->getType());
+        intTyOp1 = dyn_cast<IntegerType>(op1->getType());
 
         if (intTyOp0 && intTyOp1) {
 
@@ -453,28 +496,11 @@ bool CmpLogInstructions::hookInstrs(Module &M) {
                          ? intTyOp0->getBitWidth()
                          : intTyOp1->getBitWidth();
 
-        } else {
-
-#if (LLVM_VERSION_MAJOR >= 12)
-          if (ty0->getTypeID() != llvm::Type::PointerTyID && !be_quiet) {
-
-            fprintf(stderr, "Warning: unsupported cmp type for cmplog: %u\n",
-                    ty0->getTypeID());
-
-          }
-
-#endif
-
         }
 
       }
 
-      if (!max_size || max_size < 16) {
-
-        // fprintf(stderr, "too small\n");
-        continue;
-
-      }
+      if (!max_size || max_size < 16) { continue; }
 
       if (max_size % 8) { max_size = (((max_size / 8) + 1) * 8); }
 
@@ -507,150 +533,67 @@ bool CmpLogInstructions::hookInstrs(Module &M) {
 
       }
 
-      // XXX FIXME BUG TODO
-      if (is_fp && vector_cnt) { continue; }
+      // errs() << "[CMPLOG] cmp  " << *cmpInst << "(in function " <<
+      // cmpInst->getFunction()->getName() << ")\n";
 
-      uint64_t cur = 0, last_val0 = 0, last_val1 = 0, cur_val;
+      // first bitcast to integer type of the same bitsize as the original
+      // type (this is a nop, if already integer)
+      Value *op0_i = IRB.CreateBitCast(
+          op0, IntegerType::get(C, op0->getType()->getPrimitiveSizeInBits()));
+      // then create a int cast, which does zext, trunc or bitcast. In our case
+      // usually zext to the next larger supported type (this is a nop if
+      // already the right type)
+      Value *V0 =
+          IRB.CreateIntCast(op0_i, IntegerType::get(C, cast_size), false);
+      args.push_back(V0);
+      Value *op1_i = IRB.CreateBitCast(
+          op1, IntegerType::get(C, op1->getType()->getPrimitiveSizeInBits()));
+      Value *V1 =
+          IRB.CreateIntCast(op1_i, IntegerType::get(C, cast_size), false);
+      args.push_back(V1);
 
-      while (1) {
+      // errs() << "[CMPLOG] casted parameters:\n0: " << *V0 << "\n1: " << *V1
+      // << "\n";
 
-        std::vector<Value *> args;
-        bool                 skip = false;
+      ConstantInt *attribute = ConstantInt::get(Int8Ty, attr);
+      args.push_back(attribute);
 
-        if (vector_cnt) {
+      if (cast_size != max_size) {
 
-          op0 = IRB.CreateExtractElement(op0_saved, cur);
-          op1 = IRB.CreateExtractElement(op1_saved, cur);
-          /*
-          std::string errMsg;
-          raw_string_ostream os(errMsg);
-          op0_saved->print(os);
-          fprintf(stderr, "X: %s\n", os.str().c_str());
-          */
-          if (is_fp) {
+        ConstantInt *bitsize = ConstantInt::get(Int8Ty, (max_size / 8) - 1);
+        args.push_back(bitsize);
 
-            /*
-                        ConstantFP *i0 = dyn_cast<ConstantFP>(op0);
-                        ConstantFP *i1 = dyn_cast<ConstantFP>(op1);
-                        // BUG FIXME TODO: this is null ... but why?
-                        // fprintf(stderr, "%p %p\n", i0, i1);
-                        if (i0) {
+      }
 
-                          cur_val = (uint64_t)i0->getValue().convertToDouble();
-                          if (last_val0 && last_val0 == cur_val) { skip = true;
+      // fprintf(stderr, "_ExtInt(%u) castTo %u with attr %u didcast %u\n",
+      //         max_size, cast_size, attr);
 
-               } last_val0 = cur_val;
+      switch (cast_size) {
 
-                        }
+        case 8:
+          IRB.CreateCall(cmplogHookIns1, args);
+          break;
+        case 16:
+          IRB.CreateCall(cmplogHookIns2, args);
+          break;
+        case 32:
+          IRB.CreateCall(cmplogHookIns4, args);
+          break;
+        case 64:
+          IRB.CreateCall(cmplogHookIns8, args);
+          break;
+        case 128:
+          if (max_size == 128) {
 
-                        if (i1) {
-
-                          cur_val = (uint64_t)i1->getValue().convertToDouble();
-                          if (last_val1 && last_val1 == cur_val) { skip = true;
-
-               } last_val1 = cur_val;
-
-                        }
-
-            */
+            IRB.CreateCall(cmplogHookIns16, args);
 
           } else {
 
-            ConstantInt *i0 = dyn_cast<ConstantInt>(op0);
-            ConstantInt *i1 = dyn_cast<ConstantInt>(op1);
-            if (i0 && i0->uge(0xffffffffffffffff) == false) {
-
-              cur_val = i0->getZExtValue();
-              if (last_val0 && last_val0 == cur_val) { skip = true; }
-              last_val0 = cur_val;
-
-            }
-
-            if (i1 && i1->uge(0xffffffffffffffff) == false) {
-
-              cur_val = i1->getZExtValue();
-              if (last_val1 && last_val1 == cur_val) { skip = true; }
-              last_val1 = cur_val;
-
-            }
+            IRB.CreateCall(cmplogHookInsN, args);
 
           }
 
-        }
-
-        if (!skip) {
-
-          // errs() << "[CMPLOG] cmp  " << *cmpInst << "(in function " <<
-          // cmpInst->getFunction()->getName() << ")\n";
-
-          // first bitcast to integer type of the same bitsize as the original
-          // type (this is a nop, if already integer)
-          Value *op0_i = IRB.CreateBitCast(
-              op0, IntegerType::get(C, ty0->getPrimitiveSizeInBits()));
-          // then create a int cast, which does zext, trunc or bitcast. In our
-          // case usually zext to the next larger supported type (this is a nop
-          // if already the right type)
-          Value *V0 =
-              IRB.CreateIntCast(op0_i, IntegerType::get(C, cast_size), false);
-          args.push_back(V0);
-          Value *op1_i = IRB.CreateBitCast(
-              op1, IntegerType::get(C, ty1->getPrimitiveSizeInBits()));
-          Value *V1 =
-              IRB.CreateIntCast(op1_i, IntegerType::get(C, cast_size), false);
-          args.push_back(V1);
-
-          // errs() << "[CMPLOG] casted parameters:\n0: " << *V0 << "\n1: " <<
-          // *V1
-          // << "\n";
-
-          ConstantInt *attribute = ConstantInt::get(Int8Ty, attr);
-          args.push_back(attribute);
-
-          if (cast_size != max_size) {
-
-            ConstantInt *bitsize = ConstantInt::get(Int8Ty, (max_size / 8) - 1);
-            args.push_back(bitsize);
-
-          }
-
-          // fprintf(stderr, "_ExtInt(%u) castTo %u with attr %u didcast %u\n",
-          //         max_size, cast_size, attr);
-
-          switch (cast_size) {
-
-            case 8:
-              IRB.CreateCall(cmplogHookIns1, args);
-              break;
-            case 16:
-              IRB.CreateCall(cmplogHookIns2, args);
-              break;
-            case 32:
-              IRB.CreateCall(cmplogHookIns4, args);
-              break;
-            case 64:
-              IRB.CreateCall(cmplogHookIns8, args);
-              break;
-            case 128:
-              if (max_size == 128) {
-
-                IRB.CreateCall(cmplogHookIns16, args);
-
-              } else {
-
-                IRB.CreateCall(cmplogHookInsN, args);
-
-              }
-
-              break;
-
-          }
-
-        }
-
-        /* else fprintf(stderr, "skipped\n"); */
-
-        ++cur;
-        if (cur >= vector_cnt) { break; }
+          break;
 
       }
 
@@ -658,21 +601,14 @@ bool CmpLogInstructions::hookInstrs(Module &M) {
 
   }
 
-  if (icomps.size())
+  if (switches.size() || icomps.size())
     return true;
   else
     return false;
 
 }
 
-#if LLVM_MAJOR >= 11                                /* use new pass manager */
-PreservedAnalyses CmpLogInstructions::run(Module                &M,
-                                          ModuleAnalysisManager &MAM) {
-
-#else
 bool CmpLogInstructions::runOnModule(Module &M) {
-
-#endif
 
   if (getenv("AFL_QUIET") == NULL)
     printf("Running cmplog-instructions-pass by andreafioraldi@gmail.com\n");
@@ -681,15 +617,10 @@ bool CmpLogInstructions::runOnModule(Module &M) {
   hookInstrs(M);
   verifyModule(M);
 
-#if LLVM_MAJOR >= 11                                /* use new pass manager */
-  return PreservedAnalyses::all();
-#else
   return true;
-#endif
 
 }
 
-#if LLVM_MAJOR < 11                                 /* use old pass manager */
 static void registerCmpLogInstructionsPass(const PassManagerBuilder &,
                                            legacy::PassManagerBase &PM) {
 
@@ -704,10 +635,9 @@ static RegisterStandardPasses RegisterCmpLogInstructionsPass(
 static RegisterStandardPasses RegisterCmpLogInstructionsPass0(
     PassManagerBuilder::EP_EnabledOnOptLevel0, registerCmpLogInstructionsPass);
 
-  #if LLVM_VERSION_MAJOR >= 11
+#if LLVM_VERSION_MAJOR >= 11
 static RegisterStandardPasses RegisterCmpLogInstructionsPassLTO(
     PassManagerBuilder::EP_FullLinkTimeOptimizationLast,
     registerCmpLogInstructionsPass);
-  #endif
 #endif
 

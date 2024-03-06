@@ -8,7 +8,7 @@
 
    Run under AFL as follows:
 
-   $ cd <afl_path>/unicorn_mode/samples/c
+   $ cd <afl_path>/unicorn_mode/samples/simple/
    $ make
    $ ../../../afl-fuzz -m none -i sample_inputs -o out -- ./harness @@
 */
@@ -26,7 +26,6 @@
 #include <sys/mman.h>
 
 #include <unicorn/unicorn.h>
-#include <unicornafl/unicornafl.h>
 
 // Path to the file containing the binary to emulate
 #define BINARY_FILE ("persistent_target_x86_64")
@@ -142,7 +141,7 @@ static void mem_map_checked(uc_engine *uc, uint64_t addr, size_t size, uint32_t 
     //printf("SIZE %llx, align: %llx\n", size, ALIGNMENT);
     uc_err err = uc_mem_map(uc, addr, size, mode);
     if (err != UC_ERR_OK) {
-        printf("Error mapping %ld bytes at 0x%llx: %s (mode: %d)\n", size, (unsigned long long) addr, uc_strerror(err), (int) mode);
+        printf("Error mapping %ld bytes at 0x%lx: %s (mode: %d)\n", size, addr, uc_strerror(err), mode);
         exit(1);
     }
 }
@@ -185,7 +184,7 @@ int main(int argc, char **argv, char **envp) {
 
     // Map memory.
     mem_map_checked(uc, BASE_ADDRESS, len, UC_PROT_ALL);
-    printf("Len: %lx\n", (unsigned long) len);
+    printf("Len: %lx\n", len);
     fflush(stdout);
 
     // write machine code to be emulated to memory

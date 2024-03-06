@@ -1,6 +1,6 @@
 // This simple example just creates random buffer <= 100 filled with 'A'
 // needs -I /path/to/AFLplusplus/include
-#include "afl-fuzz.h"
+#include "custom_mutator_helpers.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -13,28 +13,20 @@
 
 typedef struct my_mutator {
 
-  afl_state_t *afl;
+  afl_t *afl;
 
   // Reused buffers:
-  u8 *fuzz_buf;
+  BUF_VAR(u8, fuzz);
 
 } my_mutator_t;
 
-my_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
+my_mutator_t *afl_custom_init(afl_t *afl, unsigned int seed) {
 
   srand(seed);
   my_mutator_t *data = calloc(1, sizeof(my_mutator_t));
   if (!data) {
 
     perror("afl_custom_init alloc");
-    return NULL;
-
-  }
-
-  data->fuzz_buf = (u8 *)malloc(MAX_FILE);
-  if (!data->fuzz_buf) {
-
-    perror("afl_custom_init malloc");
     return NULL;
 
   }
@@ -52,10 +44,18 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
 
   int size = (rand() % 100) + 1;
   if (size > max_size) size = max_size;
+  u8 *mutated_out = maybe_grow(BUF_PARAMS(data, fuzz), size);
+  if (!mutated_out) {
 
-  memset(data->fuzz_buf, _FIXED_CHAR, size);
+    *out_buf = NULL;
+    perror("custom mutator allocation (maybe_grow)");
+    return 0;            /* afl-fuzz will very likely error out after this. */
 
-  *out_buf = data->fuzz_buf;
+  }
+
+  memset(mutated_out, _FIXED_CHAR, size);
+
+  *out_buf = mutated_out;
   return size;
 
 }

@@ -3,26 +3,16 @@
    ------------------------------------------------
 
    Copyright 2015, 2016 Google Inc. All rights reserved.
-   Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     https://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
 
 */
-
-#ifdef __AFL_CODE_COVERAGE
-  #ifndef _GNU_SOURCE
-    #define _GNU_SOURCE
-  #endif
-  #ifndef __USE_GNU
-    #define __USE_GNU
-  #endif
-  #include <dlfcn.h>
-#endif
 
 #ifdef __ANDROID__
   #include "android-ashmem.h"
@@ -31,10 +21,6 @@
 #include "types.h"
 #include "cmplog.h"
 #include "llvm-alternative-coverage.h"
-
-#define XXH_INLINE_ALL
-#include "xxhash.h"
-#undef XXH_INLINE_ALL
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,7 +64,6 @@
 #endif
 
 #define CTOR_PRIO 3
-#define EARLY_FS_PRIO 5
 
 #include <sys/mman.h>
 #include <fcntl.h>
@@ -86,6 +71,12 @@
 /* Globals needed by the injected instrumentation. The __afl_area_initial region
    is used for instrumentation output before __afl_map_shm() has a chance to
    run. It will end up as .comm, so it shouldn't be too wasteful. */
+
+#if MAP_SIZE <= 65536
+  #define MAP_INITIAL_SIZE 2097152
+#else
+  #define MAP_INITIAL_SIZE MAP_SIZE
+#endif
 
 #if defined(__HAIKU__)
 extern ssize_t _kern_write(int fd, off_t pos, const void *buffer,
@@ -96,66 +87,23 @@ static u8  __afl_area_initial[MAP_INITIAL_SIZE];
 static u8 *__afl_area_ptr_dummy = __afl_area_initial;
 static u8 *__afl_area_ptr_backup = __afl_area_initial;
 
-u8        *__afl_area_ptr = __afl_area_initial;
-u8        *__afl_dictionary;
-u8        *__afl_fuzz_ptr;
+u8 *       __afl_area_ptr = __afl_area_initial;
+u8 *       __afl_dictionary;
+u8 *       __afl_fuzz_ptr;
 static u32 __afl_fuzz_len_dummy;
-u32       *__afl_fuzz_len = &__afl_fuzz_len_dummy;
-int        __afl_sharedmem_fuzzing __attribute__((weak));
+u32 *      __afl_fuzz_len = &__afl_fuzz_len_dummy;
 
 u32 __afl_final_loc;
 u32 __afl_map_size = MAP_SIZE;
 u32 __afl_dictionary_len;
 u64 __afl_map_addr;
-u32 __afl_first_final_loc;
-
-#ifdef __AFL_CODE_COVERAGE
-typedef struct afl_module_info_t afl_module_info_t;
-
-struct afl_module_info_t {
-
-  // A unique id starting with 0
-  u32 id;
-
-  // Name and base address of the module
-  char     *name;
-  uintptr_t base_address;
-
-  // PC Guard start/stop
-  u32 start;
-  u32 stop;
-
-  // PC Table begin/end
-  const uintptr_t *pcs_beg;
-  const uintptr_t *pcs_end;
-
-  u8 mapped;
-
-  afl_module_info_t *next;
-
-};
-
-typedef struct {
-
-  uintptr_t PC, PCFlags;
-
-} PCTableEntry;
-
-afl_module_info_t *__afl_module_info = NULL;
-
-u32        __afl_pcmap_size = 0;
-uintptr_t *__afl_pcmap_ptr = NULL;
-#endif  // __AFL_CODE_COVERAGE
-
-/* 1 if we are running in afl, and the forkserver was started, else 0 */
-u32 __afl_connected = 0;
 
 // for the __AFL_COVERAGE_ON/__AFL_COVERAGE_OFF features to work:
 int        __afl_selective_coverage __attribute__((weak));
 int        __afl_selective_coverage_start_off __attribute__((weak));
 static int __afl_selective_coverage_temp = 1;
 
-#if defined(__ANDROID__) || defined(__HAIKU__) || defined(NO_TLS)
+#if defined(__ANDROID__) || defined(__HAIKU__)
 PREV_LOC_T __afl_prev_loc[NGRAM_SIZE_MAX];
 PREV_LOC_T __afl_prev_caller[CTX_MAX_K];
 u32        __afl_prev_ctx;
@@ -164,6 +112,8 @@ __thread PREV_LOC_T __afl_prev_loc[NGRAM_SIZE_MAX];
 __thread PREV_LOC_T __afl_prev_caller[CTX_MAX_K];
 __thread u32        __afl_prev_ctx;
 #endif
+
+int __afl_sharedmem_fuzzing __attribute__((weak));
 
 struct cmp_map *__afl_cmp_map;
 struct cmp_map *__afl_cmp_map_backup;
@@ -191,8 +141,6 @@ u32 __afl_already_initialized_shm;
 u32 __afl_already_initialized_forkserver;
 u32 __afl_already_initialized_first;
 u32 __afl_already_initialized_second;
-u32 __afl_already_initialized_early;
-u32 __afl_already_initialized_init;
 
 /* Dummy pipe for area_is_valid() */
 
@@ -202,19 +150,9 @@ static int __afl_dummy_fd[2] = {2, 2};
 
 static void at_exit(int signal) {
 
-  if (unlikely(child_pid > 0)) {
-
-    kill(child_pid, SIGKILL);
-    waitpid(child_pid, NULL, 0);
-    child_pid = -1;
-
-  }
-
-  _exit(0);
+  if (child_pid > 0) { kill(child_pid, SIGKILL); }
 
 }
-
-#define default_hash(a, b) XXH3_64bits(a, b)
 
 /* Uninspired gcc plugin instrumentation */
 
@@ -333,20 +271,13 @@ static void __afl_map_shm(void) {
 
   if (__afl_final_loc) {
 
-    __afl_map_size = ++__afl_final_loc;  // as we count starting 0
-
-    if (getenv("AFL_DUMP_MAP_SIZE")) {
-
-      printf("%u\n", __afl_map_size);
-      exit(-1);
-
-    }
+    __afl_map_size = __afl_final_loc;
 
     if (__afl_final_loc > MAP_SIZE) {
 
       char *ptr;
       u32   val = 0;
-      if ((ptr = getenv("AFL_MAP_SIZE")) != NULL) { val = atoi(ptr); }
+      if ((ptr = getenv("AFL_MAP_SIZE")) != NULL) val = atoi(ptr);
       if (val < __afl_final_loc) {
 
         if (__afl_final_loc > FS_OPT_MAX_MAPSIZE) {
@@ -366,85 +297,15 @@ static void __afl_map_shm(void) {
 
         } else {
 
-          if (__afl_final_loc > MAP_INITIAL_SIZE && !getenv("AFL_QUIET")) {
-
+          if (!getenv("AFL_QUIET"))
             fprintf(stderr,
-                    "Warning: AFL++ tools might need to set AFL_MAP_SIZE to %u "
-                    "to be able to run this instrumented program if this "
-                    "crashes!\n",
+                    "Warning: AFL++ tools will need to set AFL_MAP_SIZE to %u "
+                    "to be able to run this instrumented program!\n",
                     __afl_final_loc);
-
-          }
 
         }
 
       }
-
-    }
-
-  } else {
-
-    if (getenv("AFL_DUMP_MAP_SIZE")) {
-
-      printf("%u\n", MAP_SIZE);
-      exit(-1);
-
-    }
-
-  }
-
-  if (__afl_sharedmem_fuzzing && (!id_str || !getenv(SHM_FUZZ_ENV_VAR) ||
-                                  fcntl(FORKSRV_FD, F_GETFD) == -1 ||
-                                  fcntl(FORKSRV_FD + 1, F_GETFD) == -1)) {
-
-    if (__afl_debug) {
-
-      fprintf(stderr,
-              "DEBUG: running not inside afl-fuzz, disabling shared memory "
-              "testcases\n");
-
-    }
-
-    __afl_sharedmem_fuzzing = 0;
-
-  }
-
-  if (!id_str) {
-
-    u32 val = 0;
-    u8 *ptr;
-
-    if ((ptr = getenv("AFL_MAP_SIZE")) != NULL) { val = atoi(ptr); }
-
-    if (val > MAP_INITIAL_SIZE) {
-
-      __afl_map_size = val;
-
-    } else {
-
-      if (__afl_first_final_loc > MAP_INITIAL_SIZE) {
-
-        // done in second stage constructor
-        __afl_map_size = __afl_first_final_loc;
-
-      } else {
-
-        __afl_map_size = MAP_INITIAL_SIZE;
-
-      }
-
-    }
-
-    if (__afl_map_size > MAP_INITIAL_SIZE && __afl_final_loc < __afl_map_size) {
-
-      __afl_final_loc = __afl_map_size;
-
-    }
-
-    if (__afl_debug) {
-
-      fprintf(stderr, "DEBUG: (0) init map size is %u to %p\n", __afl_map_size,
-              __afl_area_ptr_dummy);
 
     }
 
@@ -456,14 +317,14 @@ static void __afl_map_shm(void) {
 
   if (__afl_debug) {
 
-    fprintf(
-        stderr,
-        "DEBUG: (1) id_str %s, __afl_area_ptr %p, __afl_area_initial %p, "
-        "__afl_area_ptr_dummy %p, __afl_map_addr 0x%llx, MAP_SIZE %u, "
-        "__afl_final_loc %u, __afl_map_size %u, max_size_forkserver %u/0x%x\n",
-        id_str == NULL ? "<null>" : id_str, __afl_area_ptr, __afl_area_initial,
-        __afl_area_ptr_dummy, __afl_map_addr, MAP_SIZE, __afl_final_loc,
-        __afl_map_size, FS_OPT_MAX_MAPSIZE, FS_OPT_MAX_MAPSIZE);
+    fprintf(stderr,
+            "DEBUG: (1) id_str %s, __afl_area_ptr %p, __afl_area_initial %p, "
+            "__afl_area_ptr_dummy 0x%p, __afl_map_addr 0x%llx, MAP_SIZE %u, "
+            "__afl_final_loc %u, "
+            "max_size_forkserver %u/0x%x\n",
+            id_str == NULL ? "<null>" : id_str, __afl_area_ptr,
+            __afl_area_initial, __afl_area_ptr_dummy, __afl_map_addr, MAP_SIZE,
+            __afl_final_loc, FS_OPT_MAX_MAPSIZE, FS_OPT_MAX_MAPSIZE);
 
   }
 
@@ -487,7 +348,7 @@ static void __afl_map_shm(void) {
     }
 
 #ifdef USEMMAP
-    const char    *shm_file_path = id_str;
+    const char *   shm_file_path = id_str;
     int            shm_fd = -1;
     unsigned char *shm_base = NULL;
 
@@ -541,7 +402,6 @@ static void __afl_map_shm(void) {
       u8 *map_env = (u8 *)getenv("AFL_MAP_SIZE");
       if (!map_env || atoi((char *)map_env) < MAP_SIZE) {
 
-        fprintf(stderr, "FS_ERROR_MAP_SIZE\n");
         send_forkserver_error(FS_ERROR_MAP_SIZE);
         _exit(1);
 
@@ -589,30 +449,20 @@ static void __afl_map_shm(void) {
 
     }
 
-  } else if (__afl_final_loc > MAP_INITIAL_SIZE &&
+  } else if (_is_sancov && __afl_area_ptr != __afl_area_initial) {
 
-             __afl_final_loc > __afl_first_final_loc) {
+    free(__afl_area_ptr);
+    __afl_area_ptr = NULL;
 
-    if (__afl_area_initial != __afl_area_ptr_dummy) {
+    if (__afl_final_loc > MAP_INITIAL_SIZE) {
 
-      free(__afl_area_ptr_dummy);
-
-    }
-
-    __afl_area_ptr_dummy = (u8 *)malloc(__afl_final_loc);
-    __afl_area_ptr = __afl_area_ptr_dummy;
-    __afl_map_size = __afl_final_loc;
-
-    if (!__afl_area_ptr_dummy) {
-
-      fprintf(stderr,
-              "Error: AFL++ could not acquire %u bytes of memory, exiting!\n",
-              __afl_final_loc);
-      exit(-1);
+      __afl_area_ptr = (u8 *)malloc(__afl_final_loc);
 
     }
 
-  }  // else: nothing to be done
+    if (!__afl_area_ptr) { __afl_area_ptr = __afl_area_ptr_dummy; }
+
+  }
 
   __afl_area_ptr_backup = __afl_area_ptr;
 
@@ -620,13 +470,12 @@ static void __afl_map_shm(void) {
 
     fprintf(stderr,
             "DEBUG: (2) id_str %s, __afl_area_ptr %p, __afl_area_initial %p, "
-            "__afl_area_ptr_dummy %p, __afl_map_addr 0x%llx, MAP_SIZE "
-            "%u, __afl_final_loc %u, __afl_map_size %u, "
+            "__afl_area_ptr_dummy 0x%p, __afl_map_addr 0x%llx, MAP_SIZE "
+            "%u, __afl_final_loc %u, "
             "max_size_forkserver %u/0x%x\n",
             id_str == NULL ? "<null>" : id_str, __afl_area_ptr,
             __afl_area_initial, __afl_area_ptr_dummy, __afl_map_addr, MAP_SIZE,
-            __afl_final_loc, __afl_map_size, FS_OPT_MAX_MAPSIZE,
-            FS_OPT_MAX_MAPSIZE);
+            __afl_final_loc, FS_OPT_MAX_MAPSIZE, FS_OPT_MAX_MAPSIZE);
 
   }
 
@@ -667,15 +516,14 @@ static void __afl_map_shm(void) {
 
   if (id_str) {
 
-    // /dev/null doesn't work so we use /dev/urandom
-    if ((__afl_dummy_fd[1] = open("/dev/urandom", O_WRONLY)) < 0) {
+    if ((__afl_dummy_fd[1] = open("/dev/null", O_WRONLY)) < 0) {
 
       if (pipe(__afl_dummy_fd) < 0) { __afl_dummy_fd[1] = 1; }
 
     }
 
 #ifdef USEMMAP
-    const char     *shm_file_path = id_str;
+    const char *    shm_file_path = id_str;
     int             shm_fd = -1;
     struct cmp_map *shm_base = NULL;
 
@@ -722,27 +570,6 @@ static void __afl_map_shm(void) {
 
   }
 
-#ifdef __AFL_CODE_COVERAGE
-  char *pcmap_id_str = getenv("__AFL_PCMAP_SHM_ID");
-
-  if (pcmap_id_str) {
-
-    __afl_pcmap_size = __afl_map_size * sizeof(void *);
-    u32 shm_id = atoi(pcmap_id_str);
-
-    __afl_pcmap_ptr = (uintptr_t *)shmat(shm_id, NULL, 0);
-
-    if (__afl_debug) {
-
-      fprintf(stderr, "DEBUG: Received %p via shmat for pcmap\n",
-              __afl_pcmap_ptr);
-
-    }
-
-  }
-
-#endif  // __AFL_CODE_COVERAGE
-
 }
 
 /* unmap SHM. */
@@ -750,17 +577,6 @@ static void __afl_map_shm(void) {
 static void __afl_unmap_shm(void) {
 
   if (!__afl_already_initialized_shm) return;
-
-#ifdef __AFL_CODE_COVERAGE
-  if (__afl_pcmap_size) {
-
-    shmdt((void *)__afl_pcmap_ptr);
-    __afl_pcmap_ptr = NULL;
-    __afl_pcmap_size = 0;
-
-  }
-
-#endif  // __AFL_CODE_COVERAGE
 
   char *id_str = getenv(SHM_ENV_VAR);
 
@@ -813,7 +629,7 @@ static void __afl_unmap_shm(void) {
 
 void write_error_with_location(char *text, char *filename, int linenumber) {
 
-  u8   *o = getenv("__AFL_OUT_DIR");
+  u8 *  o = getenv("__AFL_OUT_DIR");
   char *e = strerror(errno);
 
   if (o) {
@@ -847,16 +663,16 @@ static void __afl_start_snapshots(void) {
 
   u8 child_stopped = 0;
 
-  void (*old_sigchld_handler)(int) = signal(SIGCHLD, SIG_DFL);
+  void (*old_sigchld_handler)(int) = 0;  // = signal(SIGCHLD, SIG_DFL);
 
   /* Phone home and tell the parent that we're OK. If parent isn't there,
      assume we're not running in forkserver mode and just execute program. */
 
-  status |= (FS_OPT_ENABLED | FS_OPT_SNAPSHOT | FS_OPT_NEWCMPLOG);
-  if (__afl_sharedmem_fuzzing) { status |= FS_OPT_SHDMEM_FUZZ; }
+  status |= (FS_OPT_ENABLED | FS_OPT_SNAPSHOT);
+  if (__afl_sharedmem_fuzzing != 0) status |= FS_OPT_SHDMEM_FUZZ;
   if (__afl_map_size <= FS_OPT_MAX_MAPSIZE)
     status |= (FS_OPT_SET_MAPSIZE(__afl_map_size) | FS_OPT_MAPSIZE);
-  if (__afl_dictionary_len && __afl_dictionary) { status |= FS_OPT_AUTODICT; }
+  if (__afl_dictionary_len && __afl_dictionary) status |= FS_OPT_AUTODICT;
   memcpy(tmp, &status, 4);
 
   if (write(FORKSRV_FD + 1, tmp, 4) != 4) { return; }
@@ -872,7 +688,7 @@ static void __afl_start_snapshots(void) {
 
     if (__afl_debug) {
 
-      fprintf(stderr, "DEBUG: target forkserver recv: %08x\n", was_killed);
+      fprintf(stderr, "target forkserver recv: %08x\n", was_killed);
 
     }
 
@@ -1103,7 +919,7 @@ static void __afl_start_forkserver(void) {
 
   u8 child_stopped = 0;
 
-  void (*old_sigchld_handler)(int) = signal(SIGCHLD, SIG_DFL);
+  void (*old_sigchld_handler)(int) = 0;  // = signal(SIGCHLD, SIG_DFL);
 
   if (__afl_map_size <= FS_OPT_MAX_MAPSIZE) {
 
@@ -1117,13 +933,8 @@ static void __afl_start_forkserver(void) {
 
   }
 
-  if (__afl_sharedmem_fuzzing) { status_for_fsrv |= FS_OPT_SHDMEM_FUZZ; }
-  if (status_for_fsrv) {
-
-    status_for_fsrv |= (FS_OPT_ENABLED | FS_OPT_NEWCMPLOG);
-
-  }
-
+  if (__afl_sharedmem_fuzzing != 0) { status_for_fsrv |= FS_OPT_SHDMEM_FUZZ; }
+  if (status_for_fsrv) { status_for_fsrv |= (FS_OPT_ENABLED); }
   memcpy(tmp, &status_for_fsrv, 4);
 
   /* Phone home and tell the parent that we're OK. If parent isn't there,
@@ -1131,15 +942,13 @@ static void __afl_start_forkserver(void) {
 
   if (write(FORKSRV_FD + 1, tmp, 4) != 4) { return; }
 
-  __afl_connected = 1;
-
   if (__afl_sharedmem_fuzzing || (__afl_dictionary_len && __afl_dictionary)) {
 
     if (read(FORKSRV_FD, &was_killed, 4) != 4) _exit(1);
 
     if (__afl_debug) {
 
-      fprintf(stderr, "DEBUG: target forkserver recv: %08x\n", was_killed);
+      fprintf(stderr, "target forkserver recv: %08x\n", was_killed);
 
     }
 
@@ -1343,9 +1152,13 @@ int __afl_persistent_loop(unsigned int max_cnt) {
        iteration, it's our job to erase any trace of whatever happened
        before the loop. */
 
-    memset(__afl_area_ptr, 0, __afl_map_size);
-    __afl_area_ptr[0] = 1;
-    memset(__afl_prev_loc, 0, NGRAM_SIZE_MAX * sizeof(PREV_LOC_T));
+    if (is_persistent) {
+
+      memset(__afl_area_ptr, 0, __afl_map_size);
+      __afl_area_ptr[0] = 1;
+      memset(__afl_prev_loc, 0, NGRAM_SIZE_MAX * sizeof(PREV_LOC_T));
+
+    }
 
     cycle_cnt = max_cnt;
     first_pass = 0;
@@ -1353,27 +1166,33 @@ int __afl_persistent_loop(unsigned int max_cnt) {
 
     return 1;
 
-  } else if (--cycle_cnt) {
+  }
 
-    raise(SIGSTOP);
+  if (is_persistent) {
 
-    __afl_area_ptr[0] = 1;
-    memset(__afl_prev_loc, 0, NGRAM_SIZE_MAX * sizeof(PREV_LOC_T));
-    __afl_selective_coverage_temp = 1;
+    if (--cycle_cnt) {
 
-    return 1;
+      raise(SIGSTOP);
 
-  } else {
+      __afl_area_ptr[0] = 1;
+      memset(__afl_prev_loc, 0, NGRAM_SIZE_MAX * sizeof(PREV_LOC_T));
+      __afl_selective_coverage_temp = 1;
 
-    /* When exiting __AFL_LOOP(), make sure that the subsequent code that
-        follows the loop is not traced. We do that by pivoting back to the
-        dummy output region. */
+      return 1;
 
-    __afl_area_ptr = __afl_area_ptr_dummy;
+    } else {
 
-    return 0;
+      /* When exiting __AFL_LOOP(), make sure that the subsequent code that
+         follows the loop is not traced. We do that by pivoting back to the
+         dummy output region. */
+
+      __afl_area_ptr = __afl_area_ptr_dummy;
+
+    }
 
   }
+
+  return 0;
 
 }
 
@@ -1414,8 +1233,6 @@ void __afl_manual_init(void) {
 
 __attribute__((constructor())) void __afl_auto_init(void) {
 
-  if (__afl_already_initialized_init) { return; }
-
 #ifdef __ANDROID__
   // Disable handlers in linker/debuggerd, check include/debuggerd/handler.h
   signal(SIGABRT, SIG_DFL);
@@ -1428,8 +1245,6 @@ __attribute__((constructor())) void __afl_auto_init(void) {
   signal(SIGTRAP, SIG_DFL);
 #endif
 
-  __afl_already_initialized_init = 1;
-
   if (getenv("AFL_DISABLE_LLVM_INSTRUMENTATION")) return;
 
   if (getenv(DEFER_ENV_VAR)) return;
@@ -1438,20 +1253,9 @@ __attribute__((constructor())) void __afl_auto_init(void) {
 
 }
 
-/* Optionally run an early forkserver */
-
-__attribute__((constructor(EARLY_FS_PRIO))) void __early_forkserver(void) {
-
-  if (getenv("AFL_EARLY_FORKSERVER")) { __afl_auto_init(); }
-
-}
-
 /* Initialization of the shmem - earliest possible because of LTO fixed mem. */
 
 __attribute__((constructor(CTOR_PRIO))) void __afl_auto_early(void) {
-
-  if (__afl_already_initialized_early) return;
-  __afl_already_initialized_early = 1;
 
   is_persistent = !!getenv(PERSIST_ENV_VAR);
 
@@ -1468,35 +1272,26 @@ __attribute__((constructor(1))) void __afl_auto_second(void) {
   if (__afl_already_initialized_second) return;
   __afl_already_initialized_second = 1;
 
-  if (getenv("AFL_DEBUG")) {
-
-    __afl_debug = 1;
-    fprintf(stderr, "DEBUG: debug enabled\n");
-    fprintf(stderr, "DEBUG: AFL++ afl-compiler-rt" VERSION "\n");
-
-  }
+  if (getenv("AFL_DEBUG")) { __afl_debug = 1; }
 
   if (getenv("AFL_DISABLE_LLVM_INSTRUMENTATION")) return;
   u8 *ptr;
 
-  if (__afl_final_loc > MAP_INITIAL_SIZE) {
-
-    __afl_first_final_loc = __afl_final_loc + 1;
+  if (__afl_final_loc) {
 
     if (__afl_area_ptr && __afl_area_ptr != __afl_area_initial)
       free(__afl_area_ptr);
 
     if (__afl_map_addr)
-      ptr = (u8 *)mmap((void *)__afl_map_addr, __afl_first_final_loc,
+      ptr = (u8 *)mmap((void *)__afl_map_addr, __afl_final_loc,
                        PROT_READ | PROT_WRITE,
                        MAP_FIXED_NOREPLACE | MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     else
-      ptr = (u8 *)malloc(__afl_first_final_loc);
+      ptr = (u8 *)malloc(__afl_final_loc);
 
     if (ptr && (ssize_t)ptr != -1) {
 
       __afl_area_ptr = ptr;
-      __afl_area_ptr_dummy = __afl_area_ptr;
       __afl_area_ptr_backup = __afl_area_ptr;
 
     }
@@ -1514,18 +1309,14 @@ __attribute__((constructor(0))) void __afl_auto_first(void) {
   __afl_already_initialized_first = 1;
 
   if (getenv("AFL_DISABLE_LLVM_INSTRUMENTATION")) return;
+  u8 *ptr = (u8 *)malloc(MAP_INITIAL_SIZE);
 
-  /*
-    u8 *ptr = (u8 *)malloc(MAP_INITIAL_SIZE);
+  if (ptr && (ssize_t)ptr != -1) {
 
-    if (ptr && (ssize_t)ptr != -1) {
+    __afl_area_ptr = ptr;
+    __afl_area_ptr_backup = __afl_area_ptr;
 
-      __afl_area_ptr = ptr;
-      __afl_area_ptr_backup = __afl_area_ptr;
-
-    }
-
-  */
+  }
 
 }  // ptr memleak report is a false positive
 
@@ -1584,102 +1375,6 @@ void __sanitizer_cov_trace_pc_guard(uint32_t *guard) {
 
 }
 
-#ifdef __AFL_CODE_COVERAGE
-void __sanitizer_cov_pcs_init(const uintptr_t *pcs_beg,
-                              const uintptr_t *pcs_end) {
-
-  if (__afl_debug) {
-
-    fprintf(stderr, "DEBUG: __sanitizer_cov_pcs_init called\n");
-
-  }
-
-  // If for whatever reason, we cannot get dlinfo here, then pc_guard_init also
-  // couldn't get it and we'd end up attributing to the wrong module.
-  Dl_info dlinfo;
-  if (!dladdr(__builtin_return_address(0), &dlinfo)) {
-
-    fprintf(stderr,
-            "WARNING: Ignoring __sanitizer_cov_pcs_init callback due to "
-            "missing module info\n");
-    return;
-
-  }
-
-  afl_module_info_t *last_module_info = __afl_module_info;
-  while (last_module_info && last_module_info->next) {
-
-    last_module_info = last_module_info->next;
-
-  }
-
-  if (!last_module_info) {
-
-    fprintf(stderr,
-            "ERROR: __sanitizer_cov_pcs_init called with no module info?!\n");
-    abort();
-
-  }
-
-  last_module_info->pcs_beg = pcs_beg;
-  last_module_info->pcs_end = pcs_end;
-
-  // Now update the pcmap. If this is the last module coming in, after all
-  // pre-loaded code, then this will also map all of our delayed previous
-  // modules.
-
-  if (!__afl_pcmap_ptr) { return; }
-
-  for (afl_module_info_t *mod_info = __afl_module_info; mod_info;
-       mod_info = mod_info->next) {
-
-    if (mod_info->mapped) { continue; }
-
-    PCTableEntry *start = (PCTableEntry *)(mod_info->pcs_beg);
-    PCTableEntry *end = (PCTableEntry *)(mod_info->pcs_end);
-
-    u32 in_module_index = 0;
-
-    while (start < end) {
-
-      if (mod_info->start + in_module_index >= __afl_map_size) {
-
-        fprintf(stderr, "ERROR: __sanitizer_cov_pcs_init out of bounds?!\n");
-        abort();
-
-      }
-
-      uintptr_t PC = start->PC;
-
-      // This is what `GetPreviousInstructionPc` in sanitizer runtime does
-      // for x86/x86-64. Needs more work for ARM and other archs.
-      PC = PC - 1;
-
-      // Calculate relative offset in module
-      PC = PC - mod_info->base_address;
-
-      __afl_pcmap_ptr[mod_info->start + in_module_index] = PC;
-
-      start++;
-      in_module_index++;
-
-    }
-
-    mod_info->mapped = 1;
-
-    if (__afl_debug) {
-
-      fprintf(stderr, "DEBUG: __sanitizer_cov_pcs_init initialized %u PCs\n",
-              in_module_index);
-
-    }
-
-  }
-
-}
-
-#endif  // __AFL_CODE_COVERAGE
-
 /* Init callback. Populates instrumentation IDs. Note that we're using
    ID of 0 as a special value to indicate non-instrumented bits. That may
    still touch the bitmap, but in a fairly harmless way. */
@@ -1691,146 +1386,59 @@ void __sanitizer_cov_trace_pc_guard_init(uint32_t *start, uint32_t *stop) {
 
   _is_sancov = 1;
 
-  if (!getenv("AFL_DUMP_MAP_SIZE")) {
-
-    __afl_auto_first();
-    __afl_auto_second();
-    __afl_auto_early();
-
-  }
-
   if (__afl_debug) {
 
-    fprintf(
-        stderr,
-        "DEBUG: Running __sanitizer_cov_trace_pc_guard_init: %p-%p (%lu edges) "
-        "after_fs=%u\n",
-        start, stop, (unsigned long)(stop - start),
-        __afl_already_initialized_forkserver);
+    fprintf(stderr,
+            "Running __sanitizer_cov_trace_pc_guard_init: %p-%p (%lu edges) "
+            "after_fs=%u\n",
+            start, stop, (unsigned long)(stop - start),
+            __afl_already_initialized_forkserver);
 
   }
 
-  if (start == stop || *start) { return; }
-
-#ifdef __AFL_CODE_COVERAGE
-  u32               *orig_start = start;
-  afl_module_info_t *mod_info = NULL;
-
-  Dl_info dlinfo;
-  if (dladdr(__builtin_return_address(0), &dlinfo)) {
-
-    if (__afl_already_initialized_forkserver) {
-
-      fprintf(stderr, "[pcmap] Error: Module was not preloaded: %s\n",
-              dlinfo.dli_fname);
-
-    } else {
-
-      afl_module_info_t *last_module_info = __afl_module_info;
-      while (last_module_info && last_module_info->next) {
-
-        last_module_info = last_module_info->next;
-
-      }
-
-      mod_info = malloc(sizeof(afl_module_info_t));
-
-      mod_info->id = last_module_info ? last_module_info->id + 1 : 0;
-      mod_info->name = strdup(dlinfo.dli_fname);
-      mod_info->base_address = (uintptr_t)dlinfo.dli_fbase;
-      mod_info->start = 0;
-      mod_info->stop = 0;
-      mod_info->pcs_beg = NULL;
-      mod_info->pcs_end = NULL;
-      mod_info->mapped = 0;
-      mod_info->next = NULL;
-
-      if (last_module_info) {
-
-        last_module_info->next = mod_info;
-
-      } else {
-
-        __afl_module_info = mod_info;
-
-      }
-
-      fprintf(stderr, "[pcmap] Module: %s Base Address: %p\n", dlinfo.dli_fname,
-              dlinfo.dli_fbase);
-
-    }
-
-  } else {
-
-    fprintf(stderr, "[pcmap] dladdr call failed\n");
-
-  }
-
-#endif  // __AFL_CODE_COVERAGE
+  if (start == stop || *start) return;
 
   x = getenv("AFL_INST_RATIO");
-  if (x) {
+  if (x) inst_ratio = (u32)atoi(x);
 
-    inst_ratio = (u32)atoi(x);
+  if (!inst_ratio || inst_ratio > 100) {
 
-    if (!inst_ratio || inst_ratio > 100) {
-
-      fprintf(stderr, "[-] ERROR: Invalid AFL_INST_RATIO (must be 1-100).\n");
-      abort();
-
-    }
+    fprintf(stderr, "[-] ERROR: Invalid AFL_INST_RATIO (must be 1-100).\n");
+    abort();
 
   }
 
-  // If a dlopen of an instrumented library happens after the forkserver then
-  // we have a problem as we cannot increase the coverage map anymore.
-  if (__afl_already_initialized_forkserver) {
+  /* instrumented code is loaded *after* our forkserver is up. this is a
+     problem. We cannot prevent collisions then :( */
+  if (__afl_already_initialized_forkserver &&
+      __afl_final_loc + 1 + stop - start > __afl_map_size) {
 
-    if (!getenv("AFL_IGNORE_PROBLEMS")) {
+    if (__afl_debug) {
 
-      fprintf(
-          stderr,
-          "[-] FATAL: forkserver is already up, but an instrumented dlopen() "
-          "library loaded afterwards. You must AFL_PRELOAD such libraries to "
-          "be able to fuzz them or LD_PRELOAD to run outside of afl-fuzz.\n"
-          "To ignore this set AFL_IGNORE_PROBLEMS=1 but this will lead to "
-          "ambiguous coverage data.\n"
-          "In addition, you can set AFL_IGNORE_PROBLEMS_COVERAGE=1 to "
-          "ignore the additional coverage instead (use with caution!).\n");
-      abort();
+      fprintf(stderr, "Warning: new instrumented code after the forkserver!\n");
 
-    } else {
+    }
 
-      u8 ignore_dso_after_fs = !!getenv("AFL_IGNORE_PROBLEMS_COVERAGE");
-      if (__afl_debug && ignore_dso_after_fs) {
+    __afl_final_loc = 2;
 
-        fprintf(stderr,
-                "DEBUG: Ignoring coverage from dynamically loaded code\n");
+    if (1 + stop - start > __afl_map_size) {
 
-      }
-
-      static u32 offset = 5;
+      *(start++) = ++__afl_final_loc;
 
       while (start < stop) {
 
-        if (!ignore_dso_after_fs &&
-            (likely(inst_ratio == 100) || R(100) < inst_ratio)) {
+        if (R(100) < inst_ratio)
+          *start = ++__afl_final_loc % __afl_map_size;
+        else
+          *start = 0;
 
-          *(start++) = offset;
-
-        } else {
-
-          *(start++) = 0;  // write to map[0]
-
-        }
-
-        if (unlikely(++offset >= __afl_final_loc)) { offset = 5; }
+        start++;
 
       }
 
-    }
+      return;
 
-    return;  // we are done for this special case
+    }
 
   }
 
@@ -1838,66 +1446,38 @@ void __sanitizer_cov_trace_pc_guard_init(uint32_t *start, uint32_t *stop) {
      to avoid duplicate calls (which can happen as an artifact of the underlying
      implementation in LLVM). */
 
-  if (__afl_final_loc < 5) __afl_final_loc = 5;  // we skip the first 5 entries
-
   *(start++) = ++__afl_final_loc;
 
   while (start < stop) {
 
-    if (likely(inst_ratio == 100) || R(100) < inst_ratio) {
+    if (R(100) < inst_ratio)
+      *start = ++__afl_final_loc;
+    else
+      *start = 0;
 
-      *(start++) = ++__afl_final_loc;
-
-    } else {
-
-      *(start++) = 0;  // write to map[0]
-
-    }
+    start++;
 
   }
-
-#ifdef __AFL_CODE_COVERAGE
-  if (mod_info) {
-
-    mod_info->start = *orig_start;
-    mod_info->stop = *(stop - 1);
-    if (__afl_debug) {
-
-      fprintf(stderr, "DEBUG: [pcmap] Start Index: %u Stop Index: %u\n",
-              mod_info->start, mod_info->stop);
-
-    }
-
-  }
-
-#endif  // __AFL_CODE_COVERAGE
 
   if (__afl_debug) {
 
     fprintf(stderr,
-            "DEBUG: Done __sanitizer_cov_trace_pc_guard_init: __afl_final_loc "
-            "= %u\n",
+            "Done __sanitizer_cov_trace_pc_guard_init: __afl_final_loc = %u\n",
             __afl_final_loc);
 
   }
 
-  if (__afl_already_initialized_shm) {
+  if (__afl_already_initialized_shm && __afl_final_loc > __afl_map_size) {
 
-    if (__afl_final_loc > __afl_map_size) {
+    if (__afl_debug) {
 
-      if (__afl_debug) {
-
-        fprintf(stderr, "DEBUG: Reinit shm necessary (+%u)\n",
-                __afl_final_loc - __afl_map_size);
-
-      }
-
-      __afl_unmap_shm();
-      __afl_map_shm();
+      fprintf(stderr, "Reinit shm necessary (+%u)\n",
+              __afl_final_loc - __afl_map_size);
 
     }
 
-    __afl_map_size = __afl_final_loc + 1;
+    __afl_unmap_shm();
+    __afl_map_shm();
 
   }
 
@@ -1913,7 +1493,8 @@ void __cmplog_ins_hook1(uint8_t arg1, uint8_t arg2, uint8_t attr) {
   if (unlikely(!__afl_cmp_map || arg1 == arg2)) return;
 
   uintptr_t k = (uintptr_t)__builtin_return_address(0);
-  k = (uintptr_t)(default_hash((u8 *)&k, sizeof(uintptr_t)) & (CMP_MAP_W - 1));
+  k = (k >> 4) ^ (k << 8);
+  k &= CMP_MAP_W - 1;
 
   u32 hits;
 
@@ -1943,7 +1524,8 @@ void __cmplog_ins_hook2(uint16_t arg1, uint16_t arg2, uint8_t attr) {
   if (unlikely(!__afl_cmp_map || arg1 == arg2)) return;
 
   uintptr_t k = (uintptr_t)__builtin_return_address(0);
-  k = (uintptr_t)(default_hash((u8 *)&k, sizeof(uintptr_t)) & (CMP_MAP_W - 1));
+  k = (k >> 4) ^ (k << 8);
+  k &= CMP_MAP_W - 1;
 
   u32 hits;
 
@@ -1981,7 +1563,8 @@ void __cmplog_ins_hook4(uint32_t arg1, uint32_t arg2, uint8_t attr) {
   if (unlikely(!__afl_cmp_map || arg1 == arg2)) return;
 
   uintptr_t k = (uintptr_t)__builtin_return_address(0);
-  k = (uintptr_t)(default_hash((u8 *)&k, sizeof(uintptr_t)) & (CMP_MAP_W - 1));
+  k = (k >> 4) ^ (k << 8);
+  k &= CMP_MAP_W - 1;
 
   u32 hits;
 
@@ -2019,7 +1602,8 @@ void __cmplog_ins_hook8(uint64_t arg1, uint64_t arg2, uint8_t attr) {
   if (unlikely(!__afl_cmp_map || arg1 == arg2)) return;
 
   uintptr_t k = (uintptr_t)__builtin_return_address(0);
-  k = (uintptr_t)(default_hash((u8 *)&k, sizeof(uintptr_t)) & (CMP_MAP_W - 1));
+  k = (k >> 4) ^ (k << 8);
+  k &= CMP_MAP_W - 1;
 
   u32 hits;
 
@@ -2062,7 +1646,8 @@ void __cmplog_ins_hookN(uint128_t arg1, uint128_t arg2, uint8_t attr,
   if (unlikely(!__afl_cmp_map || arg1 == arg2)) return;
 
   uintptr_t k = (uintptr_t)__builtin_return_address(0);
-  k = (uintptr_t)(default_hash((u8 *)&k, sizeof(uintptr_t)) & (CMP_MAP_W - 1));
+  k = (k >> 4) ^ (k << 8);
+  k &= CMP_MAP_W - 1;
 
   u32 hits;
 
@@ -2105,7 +1690,8 @@ void __cmplog_ins_hook16(uint128_t arg1, uint128_t arg2, uint8_t attr) {
   if (likely(!__afl_cmp_map)) return;
 
   uintptr_t k = (uintptr_t)__builtin_return_address(0);
-  k = (uintptr_t)(default_hash((u8 *)&k, sizeof(uintptr_t)) & (CMP_MAP_W - 1));
+  k = (k >> 4) ^ (k << 8);
+  k &= CMP_MAP_W - 1;
 
   u32 hits;
 
@@ -2210,8 +1796,8 @@ void __sanitizer_cov_trace_switch(uint64_t val, uint64_t *cases) {
   for (uint64_t i = 0; i < cases[0]; i++) {
 
     uintptr_t k = (uintptr_t)__builtin_return_address(0) + i;
-    k = (uintptr_t)(default_hash((u8 *)&k, sizeof(uintptr_t)) &
-                    (CMP_MAP_W - 1));
+    k = (k >> 4) ^ (k << 8);
+    k &= CMP_MAP_W - 1;
 
     u32 hits;
 
@@ -2288,108 +1874,11 @@ static int area_is_valid(void *ptr, size_t len) {
 
 }
 
-/* hook for string with length functions, eg. strncmp, strncasecmp etc.
-   Note that we ignore the len parameter and take longer strings if present. */
-void __cmplog_rtn_hook_strn(u8 *ptr1, u8 *ptr2, u64 len) {
-
-  // fprintf(stderr, "RTN1 %p %p %u\n", ptr1, ptr2, len);
-  if (likely(!__afl_cmp_map)) return;
-  if (unlikely(!len)) return;
-  int len0 = MIN(len, 31);
-  int len1 = strnlen(ptr1, len0);
-  if (len1 < 31) len1 = area_is_valid(ptr1, len1 + 1);
-  int len2 = strnlen(ptr2, len0);
-  if (len2 < 31) len2 = area_is_valid(ptr2, len2 + 1);
-  int l = MAX(len1, len2);
-  if (l < 2) return;
-
-  uintptr_t k = (uintptr_t)__builtin_return_address(0);
-  k = (uintptr_t)(default_hash((u8 *)&k, sizeof(uintptr_t)) & (CMP_MAP_W - 1));
-
-  u32 hits;
-
-  if (__afl_cmp_map->headers[k].type != CMP_TYPE_RTN) {
-
-    __afl_cmp_map->headers[k].type = CMP_TYPE_RTN;
-    __afl_cmp_map->headers[k].hits = 1;
-    __afl_cmp_map->headers[k].shape = l - 1;
-    hits = 0;
-
-  } else {
-
-    hits = __afl_cmp_map->headers[k].hits++;
-
-    if (__afl_cmp_map->headers[k].shape < l) {
-
-      __afl_cmp_map->headers[k].shape = l - 1;
-
-    }
-
-  }
-
-  struct cmpfn_operands *cmpfn = (struct cmpfn_operands *)__afl_cmp_map->log[k];
-  hits &= CMP_MAP_RTN_H - 1;
-
-  cmpfn[hits].v0_len = 0x80 + l;
-  cmpfn[hits].v1_len = 0x80 + l;
-  __builtin_memcpy(cmpfn[hits].v0, ptr1, len1);
-  __builtin_memcpy(cmpfn[hits].v1, ptr2, len2);
-  // fprintf(stderr, "RTN3\n");
-
-}
-
-/* hook for string functions, eg. strcmp, strcasecmp etc. */
-void __cmplog_rtn_hook_str(u8 *ptr1, u8 *ptr2) {
-
-  // fprintf(stderr, "RTN1 %p %p\n", ptr1, ptr2);
-  if (likely(!__afl_cmp_map)) return;
-  if (unlikely(!ptr1 || !ptr2)) return;
-  int len1 = strnlen(ptr1, 30) + 1;
-  int len2 = strnlen(ptr2, 30) + 1;
-  int l = MAX(len1, len2);
-  if (l < 3) return;
-
-  uintptr_t k = (uintptr_t)__builtin_return_address(0);
-  k = (uintptr_t)(default_hash((u8 *)&k, sizeof(uintptr_t)) & (CMP_MAP_W - 1));
-
-  u32 hits;
-
-  if (__afl_cmp_map->headers[k].type != CMP_TYPE_RTN) {
-
-    __afl_cmp_map->headers[k].type = CMP_TYPE_RTN;
-    __afl_cmp_map->headers[k].hits = 1;
-    __afl_cmp_map->headers[k].shape = l - 1;
-    hits = 0;
-
-  } else {
-
-    hits = __afl_cmp_map->headers[k].hits++;
-
-    if (__afl_cmp_map->headers[k].shape < l) {
-
-      __afl_cmp_map->headers[k].shape = l - 1;
-
-    }
-
-  }
-
-  struct cmpfn_operands *cmpfn = (struct cmpfn_operands *)__afl_cmp_map->log[k];
-  hits &= CMP_MAP_RTN_H - 1;
-
-  cmpfn[hits].v0_len = 0x80 + len1;
-  cmpfn[hits].v1_len = 0x80 + len2;
-  __builtin_memcpy(cmpfn[hits].v0, ptr1, len1);
-  __builtin_memcpy(cmpfn[hits].v1, ptr2, len2);
-  // fprintf(stderr, "RTN3\n");
-
-}
-
-/* hook function for all other func(ptr, ptr, ...) variants */
 void __cmplog_rtn_hook(u8 *ptr1, u8 *ptr2) {
 
   /*
     u32 i;
-    if (area_is_valid(ptr1, 31) <= 0 || area_is_valid(ptr2, 31) <= 0) return;
+    if (area_is_valid(ptr1, 32) <= 0 || area_is_valid(ptr2, 32) <= 0) return;
     fprintf(stderr, "rtn arg0=");
     for (i = 0; i < 32; i++)
       fprintf(stderr, "%02x", ptr1[i]);
@@ -2399,17 +1888,18 @@ void __cmplog_rtn_hook(u8 *ptr1, u8 *ptr2) {
     fprintf(stderr, "\n");
   */
 
-  // fprintf(stderr, "RTN1 %p %p\n", ptr1, ptr2);
   if (likely(!__afl_cmp_map)) return;
+  // fprintf(stderr, "RTN1 %p %p\n", ptr1, ptr2);
   int l1, l2;
-  if ((l1 = area_is_valid(ptr1, 31)) <= 0 ||
-      (l2 = area_is_valid(ptr2, 31)) <= 0)
+  if ((l1 = area_is_valid(ptr1, 32)) <= 0 ||
+      (l2 = area_is_valid(ptr2, 32)) <= 0)
     return;
-  int len = MIN(31, MIN(l1, l2));
+  int len = MIN(l1, l2);
 
   // fprintf(stderr, "RTN2 %u\n", len);
   uintptr_t k = (uintptr_t)__builtin_return_address(0);
-  k = (uintptr_t)(default_hash((u8 *)&k, sizeof(uintptr_t)) & (CMP_MAP_W - 1));
+  k = (k >> 4) ^ (k << 8);
+  k &= CMP_MAP_W - 1;
 
   u32 hits;
 
@@ -2432,80 +1922,12 @@ void __cmplog_rtn_hook(u8 *ptr1, u8 *ptr2) {
 
   }
 
-  struct cmpfn_operands *cmpfn = (struct cmpfn_operands *)__afl_cmp_map->log[k];
   hits &= CMP_MAP_RTN_H - 1;
-
-  cmpfn[hits].v0_len = len;
-  cmpfn[hits].v1_len = len;
-  __builtin_memcpy(cmpfn[hits].v0, ptr1, len);
-  __builtin_memcpy(cmpfn[hits].v1, ptr2, len);
+  __builtin_memcpy(((struct cmpfn_operands *)__afl_cmp_map->log[k])[hits].v0,
+                   ptr1, len);
+  __builtin_memcpy(((struct cmpfn_operands *)__afl_cmp_map->log[k])[hits].v1,
+                   ptr2, len);
   // fprintf(stderr, "RTN3\n");
-
-}
-
-/* hook for func(ptr, ptr, len, ...) looking functions.
-   Note that for the time being we ignore len as this could be wrong
-   information and pass it on to the standard binary rtn hook */
-void __cmplog_rtn_hook_n(u8 *ptr1, u8 *ptr2, u64 len) {
-
-  (void)(len);
-  __cmplog_rtn_hook(ptr1, ptr2);
-
-#if 0
-  /*
-    u32 i;
-    if (area_is_valid(ptr1, 31) <= 0 || area_is_valid(ptr2, 31) <= 0) return;
-    fprintf(stderr, "rtn_n len=%u arg0=", len);
-    for (i = 0; i < len; i++)
-      fprintf(stderr, "%02x", ptr1[i]);
-    fprintf(stderr, " arg1=");
-    for (i = 0; i < len; i++)
-      fprintf(stderr, "%02x", ptr2[i]);
-    fprintf(stderr, "\n");
-  */
-
-  // fprintf(stderr, "RTN1 %p %p %u\n", ptr1, ptr2, len);
-  if (likely(!__afl_cmp_map)) return;
-  if (unlikely(!len)) return;
-  int l = MIN(31, len);
-
-  if ((l = area_is_valid(ptr1, l)) <= 0 || (l = area_is_valid(ptr2, l)) <= 0)
-    return;
-
-  // fprintf(stderr, "RTN2 %u\n", l);
-  uintptr_t k = (uintptr_t)__builtin_return_address(0);
-  k = (uintptr_t)(default_hash((u8 *)&k, sizeof(uintptr_t)) & (CMP_MAP_W - 1));
-
-  u32 hits;
-
-  if (__afl_cmp_map->headers[k].type != CMP_TYPE_RTN) {
-
-    __afl_cmp_map->headers[k].type = CMP_TYPE_RTN;
-    __afl_cmp_map->headers[k].hits = 1;
-    __afl_cmp_map->headers[k].shape = l - 1;
-    hits = 0;
-
-  } else {
-
-    hits = __afl_cmp_map->headers[k].hits++;
-
-    if (__afl_cmp_map->headers[k].shape < l) {
-
-      __afl_cmp_map->headers[k].shape = l - 1;
-
-    }
-
-  }
-
-  struct cmpfn_operands *cmpfn = (struct cmpfn_operands *)__afl_cmp_map->log[k];
-  hits &= CMP_MAP_RTN_H - 1;
-
-  cmpfn[hits].v0_len = l;
-  cmpfn[hits].v1_len = l;
-  __builtin_memcpy(cmpfn[hits].v0, ptr1, l);
-  __builtin_memcpy(cmpfn[hits].v1, ptr2, l);
-  // fprintf(stderr, "RTN3\n");
-#endif
 
 }
 
@@ -2653,12 +2075,6 @@ void __afl_coverage_skip() {
 void __afl_coverage_interesting(u8 val, u32 id) {
 
   __afl_area_ptr[id] = val;
-
-}
-
-void __afl_set_persistent_mode(u8 mode) {
-
-  is_persistent = mode;
 
 }
 

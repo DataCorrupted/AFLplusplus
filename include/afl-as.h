@@ -10,13 +10,13 @@
                      Dominik Maier <mail@dmnk.co>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     https://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
    This file houses the assembly-level instrumentation injected into fuzzed
    programs. The instrumentation stores XORed pairs of data: identifiers of the
@@ -396,7 +396,7 @@ static const u8 *main_payload_32 =
   "\n";
 
 /* The OpenBSD hack is due to lahf and sahf not being recognized by some
-   versions of binutils: https://marc.info/?l=openbsd-cvs&m=141636589924400
+   versions of binutils: http://marc.info/?l=openbsd-cvs&m=141636589924400
 
    The Apple code is a bit different when calling libc functions because
    they are doing relocations differently from everybody else. We also need

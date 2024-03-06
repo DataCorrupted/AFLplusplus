@@ -29,8 +29,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <zlib.h>
+
 #include <arpa/inet.h>
-#include "afl-fuzz.h"
 
 /* A macro to round an integer up to 4 kB. */
 
@@ -53,7 +53,7 @@ void *afl_custom_init(void *afl) {
 
   }
 
-  state->buf = calloc(sizeof(unsigned char), MAX_FILE);
+  state->buf = calloc(sizeof(unsigned char), 4096);
   if (!state->buf) {
 
     free(state);
@@ -70,6 +70,9 @@ size_t afl_custom_post_process(post_state_t *data, const unsigned char *in_buf,
                                unsigned int          len,
                                const unsigned char **out_buf) {
 
+  unsigned char *new_buf = (unsigned char *)in_buf;
+  unsigned int   pos = 8;
+
   /* Don't do anything if there's not enough room for the PNG header
      (8 bytes). */
 
@@ -79,8 +82,6 @@ size_t afl_custom_post_process(post_state_t *data, const unsigned char *in_buf,
     return len;
 
   }
-
-  unsigned int pos = 8;
 
   /* Minimum size of a zero-length PNG chunk is 12 bytes; if we
      don't have that, we can bail out. */
@@ -110,7 +111,34 @@ size_t afl_custom_post_process(post_state_t *data, const unsigned char *in_buf,
 
     if (real_cksum != file_cksum) {
 
-      *(uint32_t *)(data->buf + pos + 8 + chunk_len) = real_cksum;
+      /* First modification? Make a copy of the input buffer. Round size
+         up to 4 kB to minimize the number of reallocs needed. */
+
+      if (new_buf == in_buf) {
+
+        if (len <= data->size) {
+
+          new_buf = data->buf;
+
+        } else {
+
+          new_buf = realloc(data->buf, UP4K(len));
+          if (!new_buf) {
+
+            *out_buf = in_buf;
+            return len;
+
+          }
+
+          data->buf = new_buf;
+          data->size = UP4K(len);
+          memcpy(new_buf, in_buf, len);
+
+        }
+
+      }
+
+      *(uint32_t *)(new_buf + pos + 8 + chunk_len) = real_cksum;
 
     }
 
@@ -120,7 +148,7 @@ size_t afl_custom_post_process(post_state_t *data, const unsigned char *in_buf,
 
   }
 
-  *out_buf = data->buf;
+  *out_buf = new_buf;
   return len;
 
 }

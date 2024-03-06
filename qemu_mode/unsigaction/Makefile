@@ -4,7 +4,7 @@
 #
 # Written by Andrea Fioraldi <andreafioraldi@gmail.com>
 #
-# Copyright 2019-2023 Andrea Fioraldi. All rights reserved.
+# Copyright 2019-2020 Andrea Fioraldi. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,19 +12,19 @@
 #
 #   http://www.apache.org/licenses/LICENSE-2.0
 #
+.POSIX:
 
-TARGETS=unsigaction.so unsigaction32.so unsigaction64.so
+_UNIQ=_QINU_
+
+TARGETCANDIDATES=unsigaction.so
+_TARGETS=$(_UNIQ)$(AFL_NO_X86)$(_UNIQ)
+__TARGETS=$(_TARGETS:$(_UNIQ)1$(_UNIQ)=)
+TARGETS=$(__TARGETS:$(_UNIQ)$(_UNIQ)=$(TARGETCANDIDATES))
 
 all:  $(TARGETS)
 
 unsigaction.so: unsigaction.c
 	@if $(CC) -fPIC -shared unsigaction.c -o unsigaction.so 2>/dev/null ; then echo "unsigaction build success"; else echo "unsigaction build failure (that's fine)"; fi
-
-unsigaction32.so: unsigaction.c
-	@if $(CC) -fPIC -m32 -shared unsigaction.c -o unsigaction32.so 2>/dev/null ; then echo "unsigaction32 build success"; else echo "unsigaction32 build failure (that's fine)"; fi
-
-unsigaction64.so: unsigaction.c
-	@if $(CC) -fPIC -m64 -shared unsigaction.c -o unsigaction64.so 2>/dev/null ; then echo "unsigaction64 build success"; else echo "unsigaction64 build failure (that's fine)"; fi
 
 clean:
 	rm -f unsigaction.so

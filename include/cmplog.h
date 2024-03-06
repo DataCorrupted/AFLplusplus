@@ -12,13 +12,13 @@
                      Dominik Maier <mail@dmnk.co>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     https://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
    Shared code to handle the shared memory. This is used by the fuzzer
    as well the other components like afl-tmin, afl-showmap, etc...
@@ -34,7 +34,7 @@
 
 #define CMP_MAP_W 65536
 #define CMP_MAP_H 32
-#define CMP_MAP_RTN_H (CMP_MAP_H / 2)
+#define CMP_MAP_RTN_H (CMP_MAP_H / 4)
 
 #define SHAPE_BYTES(x) (x + 1)
 
@@ -48,8 +48,7 @@ struct cmp_header {
   unsigned shape : 5;
   unsigned type : 2;
   unsigned attribute : 4;
-  unsigned overflow : 1;
-  unsigned reserved : 4;
+  unsigned reserved : 5;
 
 } __attribute__((packed));
 
@@ -60,16 +59,14 @@ struct cmp_operands {
   u64 v0_128;
   u64 v1_128;
 
-} __attribute__((packed));
+};
 
 struct cmpfn_operands {
 
-  u8 v0[31];
-  u8 v0_len;
-  u8 v1[31];
-  u8 v1_len;
+  u8 v0[32];
+  u8 v1[32];
 
-} __attribute__((packed));
+};
 
 typedef struct cmp_operands cmp_map_list[CMP_MAP_H];
 

@@ -9,18 +9,12 @@ new ModuleMap().values().forEach(m => {
     Afl.print(`${m.base}-${m.base.add(m.size)} ${m.name}`);
 });
 
-const name = Process.enumerateModules()[0].name;
-Afl.print(`Name: ${name}`);
+const entry_point = DebugSymbol.fromName('run');
+Afl.print(`entry_point: ${entry_point.address}`);
 
-if (name === 'test') {
+Afl.setEntryPoint(entry_point.address);
 
-    Afl.print('Searching...\n');
-    const entry_point = DebugSymbol.fromName('run');
-    Afl.print(`entry_point: ${entry_point}`);
-
-    Afl.setEntryPoint(entry_point.address);
-
-}
+// Afl.error('HARD NOPE');
 
 Afl.done();
 Afl.print("done");

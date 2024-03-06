@@ -10,13 +10,13 @@
                      Dominik Maier <mail@dmnk.co>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     https://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
    This allocator is not designed to resist malicious attackers (the canaries
    are small and predictable), but provides a robust and portable way to detect
@@ -42,7 +42,7 @@
 // Be careful! _WANT_ORIGINAL_AFL_ALLOC is not compatible with custom mutators
 
 #ifndef _WANT_ORIGINAL_AFL_ALLOC
-  // AFL++ stuff without memory corruption checks - for speed
+  // afl++ stuff without memory corruption checks - for speed
 
   /* User-facing macro to sprintf() to a dynamically allocated buffer. */
 
@@ -322,7 +322,7 @@ static inline void DFL_ck_free(void *mem) {
 static inline void *DFL_ck_realloc(void *orig, u32 size) {
 
   void *ret;
-  u32   old_size = 0;
+  u32 old_size = 0;
 
   if (!size) {
 
@@ -392,7 +392,7 @@ static inline void *DFL_ck_realloc(void *orig, u32 size) {
 static inline u8 *DFL_ck_strdup(u8 *str) {
 
   void *ret;
-  u32   size;
+  u32 size;
 
   if (!str) return NULL;
 
@@ -438,14 +438,14 @@ struct TRK_obj {
 
   void *ptr;
   char *file, *func;
-  u32   line;
+  u32 line;
 
 };
 
     #ifdef AFL_MAIN
 
 struct TRK_obj *TRK[ALLOC_BUCKETS];
-u32             TRK_cnt[ALLOC_BUCKETS];
+u32 TRK_cnt[ALLOC_BUCKETS];
 
       #define alloc_report() TRK_report()
 
@@ -704,10 +704,11 @@ static inline void *afl_realloc(void **buf, size_t size_needed) {
     *buf = NULL;
     return NULL;
 
-  }
+  } else {
 
-  new_buf = newer_buf;
-  memset(((u8 *)new_buf) + current_size, 0, next_size - current_size);
+    new_buf = newer_buf;
+
+  }
 
   new_buf->complete_size = next_size;
   *buf = (void *)(new_buf->buf);

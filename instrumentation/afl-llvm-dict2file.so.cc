@@ -4,13 +4,13 @@
 
    Written by Marc Heuse <mh@mh-sec.de>
 
-   Copyright 2019-2023 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     https://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
    This library is plugged into LLVM when invoking clang through afl-clang-lto.
 
@@ -39,13 +39,7 @@
 #include "llvm/Config/llvm-config.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/IRBuilder.h"
-#if LLVM_VERSION_MAJOR >= 11                        /* use new pass manager */
-  #include "llvm/Passes/PassPlugin.h"
-  #include "llvm/Passes/PassBuilder.h"
-  #include "llvm/IR/PassManager.h"
-#else
-  #include "llvm/IR/LegacyPassManager.h"
-#endif
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/DebugInfo.h"
@@ -53,9 +47,7 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#if LLVM_VERSION_MAJOR < 17
-  #include "llvm/Transforms/IPO/PassManagerBuilder.h"
-#endif
+#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
@@ -72,70 +64,24 @@ using namespace llvm;
 
 namespace {
 
-#if LLVM_VERSION_MAJOR >= 11                        /* use new pass manager */
-class AFLdict2filePass : public PassInfoMixin<AFLdict2filePass> {
-
-  std::ofstream of;
-  void          dict2file(u8 *, u32);
-
- public:
-  AFLdict2filePass() {
-
-#else
-
 class AFLdict2filePass : public ModulePass {
-
-  std::ofstream of;
-  void          dict2file(u8 *, u32);
 
  public:
   static char ID;
 
   AFLdict2filePass() : ModulePass(ID) {
 
-#endif
-
     if (getenv("AFL_DEBUG")) debug = 1;
 
   }
 
-#if LLVM_VERSION_MAJOR >= 11                        /* use new pass manager */
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
-#else
   bool runOnModule(Module &M) override;
-#endif
 
 };
 
 }  // namespace
 
-#if LLVM_MAJOR >= 11
-extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK
-llvmGetPassPluginInfo() {
-
-  return {LLVM_PLUGIN_API_VERSION, "AFLdict2filePass", "v0.1",
-          /* lambda to insert our pass into the pass pipeline. */
-          [](PassBuilder &PB) {
-
-  #if LLVM_VERSION_MAJOR <= 13
-            using OptimizationLevel = typename PassBuilder::OptimizationLevel;
-  #endif
-            PB.registerOptimizerLastEPCallback(
-                [](ModulePassManager &MPM, OptimizationLevel OL) {
-
-                  MPM.addPass(AFLdict2filePass());
-
-                });
-
-          }};
-
-}
-
-#else
-char AFLdict2filePass::ID = 0;
-#endif
-
-void AFLdict2filePass::dict2file(u8 *mem, u32 len) {
+void dict2file(int fd, u8 *mem, u32 len) {
 
   u32  i, j, binary = 0;
   char line[MAX_AUTO_EXTRA * 8], tmp[8];
@@ -167,24 +113,19 @@ void AFLdict2filePass::dict2file(u8 *mem, u32 len) {
 
   line[j] = 0;
   strcat(line, "\"\n");
-  of << line;
-  of.flush();
+  if (write(fd, line, strlen(line)) <= 0)
+    PFATAL("Could not write to dictionary file");
+  fsync(fd);
 
   if (!be_quiet) fprintf(stderr, "Found dictionary token: %s", line);
 
 }
 
-#if LLVM_VERSION_MAJOR >= 11                        /* use new pass manager */
-PreservedAnalyses AFLdict2filePass::run(Module &M, ModuleAnalysisManager &MAM) {
-
-#else
 bool AFLdict2filePass::runOnModule(Module &M) {
 
-#endif
-
   DenseMap<Value *, std::string *> valueMap;
-  char                            *ptr;
-  int                              found = 0, handle_main = 1;
+  char *                           ptr;
+  int                              fd, found = 0;
 
   /* Show a banner */
   setvbuf(stdout, NULL, _IONBF, 0);
@@ -194,48 +135,25 @@ bool AFLdict2filePass::runOnModule(Module &M) {
     SAYF(cCYA "afl-llvm-dict2file" VERSION cRST
               " by Marc \"vanHauser\" Heuse <mh@mh-sec.de>\n");
 
-  } else {
+  } else
 
     be_quiet = 1;
-
-  }
-
-  if (getenv("AFL_LLVM_DICT2FILE_NO_MAIN")) { handle_main = 0; }
 
   scanForDangerousFunctions(&M);
 
   ptr = getenv("AFL_LLVM_DICT2FILE");
 
-  if (!ptr) {
-
-#if LLVM_VERSION_MAJOR >= 11                        /* use new pass manager */
-    auto PA = PreservedAnalyses::all();
-    return PA;
-#else
-    return true;
-#endif
-
-  }
-
-  if (*ptr != '/')
+  if (!ptr || *ptr != '/')
     FATAL("AFL_LLVM_DICT2FILE is not set to an absolute path: %s", ptr);
 
-  of.open(ptr, std::ofstream::out | std::ofstream::app);
-  if (!of.is_open()) PFATAL("Could not open/create %s.", ptr);
+  if ((fd = open(ptr, O_WRONLY | O_APPEND | O_CREAT | O_DSYNC, 0644)) < 0)
+    PFATAL("Could not open/create %s.", ptr);
 
   /* Instrument all the things! */
 
   for (auto &F : M) {
 
-    if (!handle_main &&
-        (!F.getName().compare("main") || !F.getName().compare("_main"))) {
-
-      continue;
-
-    }
-
-    if (isIgnoreFunction(&F)) { continue; }
-    if (!isInInstrumentList(&F, MNAME) || !F.size()) { continue; }
+    if (isIgnoreFunction(&F)) continue;
 
     /*  Some implementation notes.
      *
@@ -270,11 +188,11 @@ bool AFLdict2filePass::runOnModule(Module &M) {
       for (auto &IN : BB) {
 
         CallInst *callInst = nullptr;
-        CmpInst  *cmpInst = nullptr;
+        CmpInst * cmpInst = nullptr;
 
         if ((cmpInst = dyn_cast<CmpInst>(&IN))) {
 
-          Value       *op = cmpInst->getOperand(1);
+          Value *      op = cmpInst->getOperand(1);
           ConstantInt *ilen = dyn_cast<ConstantInt>(op);
 
           /* We skip > 64 bit integers. why? first because their value is
@@ -345,11 +263,11 @@ bool AFLdict2filePass::runOnModule(Module &M) {
 
               }
 
-              dict2file((u8 *)&val, len);
+              dict2file(fd, (u8 *)&val, len);
               found++;
               if (val2) {
 
-                dict2file((u8 *)&val2, len);
+                dict2file(fd, (u8 *)&val2, len);
                 found++;
 
               }
@@ -369,53 +287,19 @@ bool AFLdict2filePass::runOnModule(Module &M) {
           bool   isStrncasecmp = true;
           bool   isIntMemcpy = true;
           bool   isStdString = true;
-          bool   isStrstr = true;
+          bool   addedNull = false;
           size_t optLen = 0;
 
           Function *Callee = callInst->getCalledFunction();
           if (!Callee) continue;
           if (callInst->getCallingConv() != llvm::CallingConv::C) continue;
           std::string FuncName = Callee->getName().str();
-          isStrcmp &=
-              (!FuncName.compare("strcmp") || !FuncName.compare("xmlStrcmp") ||
-               !FuncName.compare("xmlStrEqual") ||
-               !FuncName.compare("g_strcmp0") ||
-               !FuncName.compare("curl_strequal") ||
-               !FuncName.compare("strcsequal"));
+          isStrcmp &= !FuncName.compare("strcmp");
           isMemcmp &=
-              (!FuncName.compare("memcmp") || !FuncName.compare("bcmp") ||
-               !FuncName.compare("CRYPTO_memcmp") ||
-               !FuncName.compare("OPENSSL_memcmp") ||
-               !FuncName.compare("memcmp_const_time") ||
-               !FuncName.compare("memcmpct"));
-          isStrncmp &= (!FuncName.compare("strncmp") ||
-                        !FuncName.compare("xmlStrncmp") ||
-                        !FuncName.compare("curl_strnequal"));
-          isStrcasecmp &= (!FuncName.compare("strcasecmp") ||
-                           !FuncName.compare("stricmp") ||
-                           !FuncName.compare("ap_cstr_casecmp") ||
-                           !FuncName.compare("OPENSSL_strcasecmp") ||
-                           !FuncName.compare("xmlStrcasecmp") ||
-                           !FuncName.compare("g_strcasecmp") ||
-                           !FuncName.compare("g_ascii_strcasecmp") ||
-                           !FuncName.compare("Curl_strcasecompare") ||
-                           !FuncName.compare("Curl_safe_strcasecompare") ||
-                           !FuncName.compare("cmsstrcasecmp"));
-          isStrncasecmp &= (!FuncName.compare("strncasecmp") ||
-                            !FuncName.compare("strnicmp") ||
-                            !FuncName.compare("ap_cstr_casecmpn") ||
-                            !FuncName.compare("OPENSSL_strncasecmp") ||
-                            !FuncName.compare("xmlStrncasecmp") ||
-                            !FuncName.compare("g_ascii_strncasecmp") ||
-                            !FuncName.compare("Curl_strncasecompare") ||
-                            !FuncName.compare("g_strncasecmp"));
-          isStrstr &= (!FuncName.compare("strstr") ||
-                       !FuncName.compare("g_strstr_len") ||
-                       !FuncName.compare("ap_strcasestr") ||
-                       !FuncName.compare("xmlStrstr") ||
-                       !FuncName.compare("xmlStrcasestr") ||
-                       !FuncName.compare("g_str_has_prefix") ||
-                       !FuncName.compare("g_str_has_suffix"));
+              (!FuncName.compare("memcmp") || !FuncName.compare("bcmp"));
+          isStrncmp &= !FuncName.compare("strncmp");
+          isStrcasecmp &= !FuncName.compare("strcasecmp");
+          isStrncasecmp &= !FuncName.compare("strncasecmp");
           isIntMemcpy &= !FuncName.compare("llvm.memcpy.p0i8.p0i8.i64");
           isStdString &= ((FuncName.find("basic_string") != std::string::npos &&
                            FuncName.find("compare") != std::string::npos) ||
@@ -423,17 +307,13 @@ bool AFLdict2filePass::runOnModule(Module &M) {
                            FuncName.find("find") != std::string::npos));
 
           if (!isStrcmp && !isMemcmp && !isStrncmp && !isStrcasecmp &&
-              !isStrncasecmp && !isIntMemcpy && !isStdString && !isStrstr)
+              !isStrncasecmp && !isIntMemcpy && !isStdString)
             continue;
 
           /* Verify the strcmp/memcmp/strncmp/strcasecmp/strncasecmp function
            * prototype */
           FunctionType *FT = Callee->getFunctionType();
 
-          isStrstr &=
-              FT->getNumParams() == 2 &&
-              FT->getParamType(0) == FT->getParamType(1) &&
-              FT->getParamType(0) == IntegerType::getInt8PtrTy(M.getContext());
           isStrcmp &=
               FT->getNumParams() == 2 && FT->getReturnType()->isIntegerTy(32) &&
               FT->getParamType(0) == FT->getParamType(1) &&
@@ -464,7 +344,7 @@ bool AFLdict2filePass::runOnModule(Module &M) {
                          FT->getParamType(1)->isPointerTy();
 
           if (!isStrcmp && !isMemcmp && !isStrncmp && !isStrcasecmp &&
-              !isStrncasecmp && !isIntMemcpy && !isStdString && !isStrstr)
+              !isStrncasecmp && !isIntMemcpy && !isStdString)
             continue;
 
           /* is a str{n,}{case,}cmp/memcmp, check if we have
@@ -478,7 +358,7 @@ bool AFLdict2filePass::runOnModule(Module &M) {
           bool        HasStr1;
           getConstantStringInfo(Str1P, TmpStr);
 
-          if (isStrstr || TmpStr.empty()) {
+          if (TmpStr.empty()) {
 
             HasStr1 = false;
 
@@ -514,7 +394,7 @@ bool AFLdict2filePass::runOnModule(Module &M) {
           if (!HasStr2) {
 
             auto *Ptr = dyn_cast<ConstantExpr>(Str2P);
-            if (Ptr && Ptr->getOpcode() == Instruction::GetElementPtr) {
+            if (Ptr && Ptr->isGEPWithNoNotionalOverIndexing()) {
 
               if (auto *Var = dyn_cast<GlobalVariable>(Ptr->getOperand(0))) {
 
@@ -542,35 +422,27 @@ bool AFLdict2filePass::runOnModule(Module &M) {
 
             if (HasStr2 == true) {
 
-              Value       *op2 = callInst->getArgOperand(2);
+              Value *      op2 = callInst->getArgOperand(2);
               ConstantInt *ilen = dyn_cast<ConstantInt>(op2);
               if (ilen) {
 
                 uint64_t literalLength = Str2.length();
                 uint64_t optLength = ilen->getZExtValue();
-                if (optLength > literalLength + 1) {
-
-                  optLength = Str2.length() + 1;
-
-                }
-
                 if (literalLength + 1 == optLength) {
 
                   Str2.append("\0", 1);  // add null byte
 
                 }
 
+                if (optLength > Str2.length()) { optLength = Str2.length(); }
+
               }
 
               valueMap[Str1P] = new std::string(Str2);
 
-              if (debug) {
-
+              if (debug)
                 fprintf(stderr, "Saved: %s for %p\n", Str2.c_str(),
                         (void *)Str1P);
-
-              }
-
               continue;
 
             }
@@ -600,7 +472,7 @@ bool AFLdict2filePass::runOnModule(Module &M) {
 
             auto Ptr = dyn_cast<ConstantExpr>(Str1P);
 
-            if (Ptr && Ptr->getOpcode() == Instruction::GetElementPtr) {
+            if (Ptr && Ptr->isGEPWithNoNotionalOverIndexing()) {
 
               if (auto *Var = dyn_cast<GlobalVariable>(Ptr->getOperand(0))) {
 
@@ -655,23 +527,18 @@ bool AFLdict2filePass::runOnModule(Module &M) {
 
           if (isMemcmp || isStrncmp || isStrncasecmp) {
 
-            Value       *op2 = callInst->getArgOperand(2);
+            Value *      op2 = callInst->getArgOperand(2);
             ConstantInt *ilen = dyn_cast<ConstantInt>(op2);
 
             if (ilen) {
 
               uint64_t literalLength = optLen;
               optLen = ilen->getZExtValue();
-              if (optLen > thestring.length() + 1) {
-
-                optLen = thestring.length() + 1;
-
-              }
-
+              if (optLen > thestring.length()) { optLen = thestring.length(); }
               if (optLen < 2) { continue; }
               if (literalLength + 1 == optLen) {  // add null byte
-
                 thestring.append("\0", 1);
+                addedNull = true;
 
               }
 
@@ -683,17 +550,14 @@ bool AFLdict2filePass::runOnModule(Module &M) {
           // was not already added
           if (!isMemcmp) {
 
-            /*
-                        if (addedNull == false && thestring[optLen - 1] != '\0')
-               {
+            if (addedNull == false && thestring[optLen - 1] != '\0') {
 
-                          thestring.append("\0", 1);  // add null byte
-                          optLen++;
+              thestring.append("\0", 1);  // add null byte
+              optLen++;
 
-                        }
+            }
 
-            */
-            if (!isStdString && thestring.find('\0', 0) != std::string::npos) {
+            if (!isStdString) {
 
               // ensure we do not have garbage
               size_t offset = thestring.find('\0', 0);
@@ -715,7 +579,7 @@ bool AFLdict2filePass::runOnModule(Module &M) {
 
           ptr = (char *)thestring.c_str();
 
-          dict2file((u8 *)ptr, optLen);
+          dict2file(fd, (u8 *)ptr, optLen);
           found++;
 
         }
@@ -726,7 +590,7 @@ bool AFLdict2filePass::runOnModule(Module &M) {
 
   }
 
-  of.close();
+  close(fd);
 
   /* Say something nice. */
 
@@ -739,16 +603,12 @@ bool AFLdict2filePass::runOnModule(Module &M) {
 
   }
 
-#if LLVM_VERSION_MAJOR >= 11                        /* use new pass manager */
-  auto PA = PreservedAnalyses::all();
-  return PA;
-#else
   return true;
-#endif
 
 }
 
-#if LLVM_VERSION_MAJOR < 11                         /* use old pass manager */
+char AFLdict2filePass::ID = 0;
+
 static void registerAFLdict2filePass(const PassManagerBuilder &,
                                      legacy::PassManagerBase &PM) {
 
@@ -757,7 +617,7 @@ static void registerAFLdict2filePass(const PassManagerBuilder &,
 }
 
 static RegisterPass<AFLdict2filePass> X("afl-dict2file",
-                                        "AFL++ dict2file instrumentation pass",
+                                        "afl++ dict2file instrumentation pass",
                                         false, false);
 
 static RegisterStandardPasses RegisterAFLdict2filePass(
@@ -765,6 +625,4 @@ static RegisterStandardPasses RegisterAFLdict2filePass(
 
 static RegisterStandardPasses RegisterAFLdict2filePass0(
     PassManagerBuilder::EP_EnabledOnOptLevel0, registerAFLdict2filePass);
-
-#endif
 

@@ -23,8 +23,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <poll.h>
-// #include "logging.h" // switched from preeny_info() to fprintf(stderr, "Info:
-// "
+//#include "logging.h" // switche from preeny_info() to fprintf(stderr, "Info: "
 
 //
 // originals

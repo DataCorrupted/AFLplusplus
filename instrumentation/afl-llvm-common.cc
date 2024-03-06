@@ -12,7 +12,6 @@
 #include <list>
 #include <string>
 #include <fstream>
-#include <cmath>
 
 #include <llvm/Support/raw_ostream.h>
 
@@ -282,18 +281,17 @@ void scanForDangerousFunctions(llvm::Module *M) {
 
   if (!M) return;
 
-#if LLVM_VERSION_MAJOR >= 4 || \
+#if LLVM_VERSION_MAJOR > 3 || \
     (LLVM_VERSION_MAJOR == 3 && LLVM_VERSION_MINOR >= 9)
 
   for (GlobalIFunc &IF : M->ifuncs()) {
 
     StringRef ifunc_name = IF.getName();
     Constant *r = IF.getResolver();
-    if (r->getNumOperands() == 0) { continue; }
     StringRef r_name = cast<Function>(r->getOperand(0))->getName();
     if (!be_quiet)
       fprintf(stderr,
-              "Note: Found an ifunc with name %s that points to resolver "
+              "Info: Found an ifunc with name %s that points to resolver "
               "function %s, we will not instrument this, putting it into the "
               "block list.\n",
               ifunc_name.str().c_str(), r_name.str().c_str());
@@ -331,7 +329,7 @@ void scanForDangerousFunctions(llvm::Module *M) {
 
                 if (!be_quiet)
                   fprintf(stderr,
-                          "Note: Found constructor function %s with prio "
+                          "Info: Found constructor function %s with prio "
                           "%u, we will not instrument this, putting it into a "
                           "block list.\n",
                           F->getName().str().c_str(), Priority);
@@ -403,7 +401,7 @@ static std::string getSourceName(llvm::Function *F) {
 
 }
 
-bool isInInstrumentList(llvm::Function *F, std::string Filename) {
+bool isInInstrumentList(llvm::Function *F) {
 
   bool return_default = true;
 
@@ -450,8 +448,6 @@ bool isInInstrumentList(llvm::Function *F, std::string Filename) {
 
       std::string source_file = getSourceName(F);
 
-      if (source_file.empty()) { source_file = Filename; }
-
       if (!source_file.empty()) {
 
         for (std::list<std::string>::iterator it = denyListFiles.begin();
@@ -482,7 +478,7 @@ bool isInInstrumentList(llvm::Function *F, std::string Filename) {
         if (!be_quiet)
           WARNF(
               "No debug information found for function %s, will be "
-              "instrumented (recompile with -g -O[1-3] and use a modern llvm).",
+              "instrumented (recompile with -g -O[1-3]).",
               F->getName().str().c_str());
 
       }
@@ -532,8 +528,6 @@ bool isInInstrumentList(llvm::Function *F, std::string Filename) {
 
       std::string source_file = getSourceName(F);
 
-      if (source_file.empty()) { source_file = Filename; }
-
       if (!source_file.empty()) {
 
         for (std::list<std::string>::iterator it = allowListFiles.begin();
@@ -569,7 +563,7 @@ bool isInInstrumentList(llvm::Function *F, std::string Filename) {
         if (!be_quiet)
           WARNF(
               "No debug information found for function %s, will not be "
-              "instrumented (recompile with -g -O[1-3] and use a modern llvm).",
+              "instrumented (recompile with -g -O[1-3]).",
               F->getName().str().c_str());
         return false;
 
@@ -584,7 +578,7 @@ bool isInInstrumentList(llvm::Function *F, std::string Filename) {
 }
 
 // Calculate the number of average collisions that would occur if all
-// location IDs would be assigned randomly (like normal afl/AFL++).
+// location IDs would be assigned randomly (like normal afl/afl++).
 // This uses the "balls in bins" algorithm.
 unsigned long long int calculateCollisions(uint32_t edges) {
 

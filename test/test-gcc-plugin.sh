@@ -23,7 +23,7 @@ test -e ../afl-gcc-fast -a -e ../afl-compiler-rt.o && {
           $ECHO "$GREEN[+] gcc_plugin run reported $TUPLES instrumented locations which is fine"
         } || {
           $ECHO "$RED[!] gcc_plugin instrumentation produces a weird numbers: $TUPLES"
-          $ECHO "$YELLOW[-] this is a known issue in gcc, not AFL++. It is not flagged as an error because travis builds would all fail otherwise :-("
+          $ECHO "$YELLOW[-] this is a known issue in gcc, not afl++. It is not flagged as an error because travis builds would all fail otherwise :-("
           #CODE=1
         }
         test "$TUPLES" -lt 2 && SKIP=1
@@ -40,7 +40,7 @@ test -e ../afl-gcc-fast -a -e ../afl-compiler-rt.o && {
   }
 
   test -e test-compcov.harden.gccpi && test_compcov_binary_functionality ./test-compcov.harden.gccpi && {
-    nm test-compcov.harden.gccpi | grep -Eq 'stack_chk_fail|fstack-protector-all|fortified' > /dev/null 2>&1 && {
+    grep -Eq$GREPAOPTION 'stack_chk_fail|fstack-protector-all|fortified' test-compcov.harden.gccpi > /dev/null 2>&1 && {
       $ECHO "$GREEN[+] gcc_plugin hardened mode succeeded and is working"
     } || {
       $ECHO "$RED[!] gcc_plugin hardened mode is not hardened"
@@ -63,7 +63,7 @@ test -e ../afl-gcc-fast -a -e ../afl-compiler-rt.o && {
       echo 0 > in/in
       $ECHO "$GREY[*] running afl-fuzz for gcc_plugin, this will take approx 10 seconds"
       {
-        ../afl-fuzz -V07 -m ${MEM_LIMIT} -i in -o out -- ./test-instr.plain.gccpi >>errors 2>&1
+        ../afl-fuzz -V10 -m ${MEM_LIMIT} -i in -o out -D -- ./test-instr.plain.gccpi >>errors 2>&1
       } >>errors 2>&1
       test -n "$( ls out/default/queue/id:000002* 2>/dev/null )" && {
         $ECHO "$GREEN[+] afl-fuzz is working correctly with gcc_plugin"
