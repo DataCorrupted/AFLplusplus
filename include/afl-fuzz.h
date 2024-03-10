@@ -149,13 +149,13 @@ struct tainted {
 
 };
 
-struct {
+typedef struct {
   long data_type;
   int  data_num;
   char data_buff[2048];
 } message_seed_t;
 
-struct {
+typedef struct {
   long data_type;
   int  data_num[2];
 } message_reward_t;
