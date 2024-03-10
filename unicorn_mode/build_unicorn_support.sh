@@ -14,13 +14,13 @@
 #                                <andreafioraldi@gmail.com>
 #
 # Copyright 2017 Battelle Memorial Institute. All rights reserved.
-# Copyright 2019-2020 AFLplusplus Project. All rights reserved.
+# Copyright 2019-2024 AFLplusplus Project. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at:
 #
-#   http://www.apache.org/licenses/LICENSE-2.0
+#   https://www.apache.org/licenses/LICENSE-2.0
 #
 # This script downloads, patches, and builds a version of Unicorn with
 # minor tweaks to allow Unicorn-emulated binaries to be run under
@@ -117,21 +117,23 @@ done
 
 # some python version should be available now
 PYTHONS="`command -v python3` `command -v python` `command -v python2`"
-SETUPTOOLS_FOUND=0
+PIP_FOUND=0
 for PYTHON in $PYTHONS ; do
 
-  if $PYTHON -c "import setuptools" ; then
+  if $PYTHON -c "import pip" ; then
+    if $PYTHON -c "import wheel" ; then
 
-    SETUPTOOLS_FOUND=1
-    PYTHONBIN=$PYTHON
-    break
+      PIP_FOUND=1
+      PYTHONBIN=$PYTHON
+      break
 
+    fi
   fi
 
 done
-if [ "0" = $SETUPTOOLS_FOUND ]; then
+if [ "0" = $PIP_FOUND ]; then
 
-  echo "[-] Error: Python setup-tools not found. Run 'sudo apt-get install python-setuptools', or install python3-setuptools, or run '$PYTHONBIN -m ensurepip', or create a virtualenv, or ..."
+  echo "[-] Error: Python pip or python wheel not found. Run 'sudo apt-get install python3-pip', or run '$PYTHONBIN -m ensurepip', or create a virtualenv, or ... - and 'pip3 install wheel'"
   PREREQ_NOTFOUND=1
 
 fi
@@ -161,9 +163,9 @@ if [ $? -eq 0 ]; then
   git submodule sync ./unicornafl 2>/dev/null # ignore errors
 else
   echo "[*] cloning unicornafl"
-  test -d unicornafl || {
+  test -d unicornafl/.git || {
     CNT=1
-    while [ '!' -d unicornafl -a "$CNT" -lt 4 ]; do
+    while [ '!' -d unicornafl/.git -a "$CNT" -lt 4 ]; do
       echo "Trying to clone unicornafl (attempt $CNT/3)"
       git clone https://github.com/AFLplusplus/unicornafl
       CNT=`expr "$CNT" + 1`
@@ -171,17 +173,17 @@ else
   }
 fi
 
-test -d unicornafl || { echo "[-] not checked out, please install git or check your internet connection." ; exit 1 ; }
+test -e unicornafl/.git || { echo "[-] not checked out, please install git or check your internet connection." ; exit 1 ; }
 echo "[+] Got unicornafl."
 
 cd "unicornafl" || exit 1
 echo "[*] Checking out $UNICORNAFL_VERSION"
+git pull
 sh -c 'git stash && git stash drop' 1>/dev/null 2>/dev/null
 git checkout "$UNICORNAFL_VERSION" || exit 1
 
-echo "[*] making sure afl++ header files match"
-cp "../../include/config.h" "." || exit 1
-cp "../../include/types.h" "." || exit 1
+echo "[*] making sure AFL++ header files match"
+cp "../../include/config.h" "./include" || exit 1
 
 echo "[*] Configuring Unicorn build..."
 
@@ -196,15 +198,25 @@ $MAKECMD -j1 || exit 1
 echo "[+] Build process successful!"
 
 echo "[*] Installing Unicorn python bindings..."
+cd unicorn/bindings/python || exit 1
+if [ -z "$VIRTUAL_ENV" ]; then
+  echo "[*] Info: Installing python unicornafl using --user"
+  THREADS=$CORES $PYTHONBIN -m pip install --user --force .|| exit 1
+else
+  echo "[*] Info: Installing python unicornafl to virtualenv: $VIRTUAL_ENV"
+  THREADS=$CORES $PYTHONBIN -m pip install --force .|| exit 1
+fi
+cd ../../../
+echo "[*] Installing Unicornafl python bindings..."
 cd bindings/python || exit 1
 if [ -z "$VIRTUAL_ENV" ]; then
   echo "[*] Info: Installing python unicornafl using --user"
-  $PYTHONBIN setup.py install --user --force --prefix=|| exit 1
+  THREADS=$CORES $PYTHONBIN -m pip install --user --force .|| exit 1
 else
   echo "[*] Info: Installing python unicornafl to virtualenv: $VIRTUAL_ENV"
-  $PYTHONBIN setup.py install --force || exit 1
+  THREADS=$CORES $PYTHONBIN -m pip install --force .|| exit 1
 fi
-echo '[*] If needed, you can (re)install the bindings from `./unicornafl/bindings/python` using `python setup.py install`'
+echo '[*] If needed, you can (re)install the bindings in `./unicornafl/bindings/python` using `pip install --force .`'
 
 cd ../../ || exit 1
 
@@ -213,11 +225,12 @@ echo "[*] Unicornafl bindings installed successfully."
 # Compile the sample, run it, verify that it works!
 echo "[*] Testing unicornafl python functionality by running a sample test harness"
 
-cd ../samples/simple || echo "Cannot cd"
+cd ../samples/python_simple || echo "Cannot cd"
 
 # Run afl-showmap on the sample application. If anything comes out then it must have worked!
 unset AFL_INST_RATIO
-echo 0 | ../../../afl-showmap -U -m none -t 2000 -q -o ./.test-instr0 -- $PYTHONBIN ./simple_test_harness.py ./sample_inputs/sample1.bin || echo "Showmap"
+# pwd; echo "echo 0 | ../../../afl-showmap -U -m none -t 2000 -o ./.test-instr0 -- $PYTHONBIN ./simple_test_harness.py ./sample_inputs/sample1.bin"
+echo 0 | ../../../afl-showmap -U -m none -t 2000 -o ./.test-instr0 -- $PYTHONBIN ./simple_test_harness.py ./sample_inputs/sample1.bin >/dev/null 2>&1 || echo "Showmap"
 
 if [ -s ./.test-instr0 ]
 then

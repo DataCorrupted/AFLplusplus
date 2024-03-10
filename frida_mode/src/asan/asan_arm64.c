@@ -1,8 +1,6 @@
 #include <dlfcn.h>
 #include "frida-gumjs.h"
 
-#include "debug.h"
-
 #include "asan.h"
 #include "ctx.h"
 #include "util.h"
@@ -24,8 +22,8 @@ asan_storeN_t asan_storeN = NULL;
 
 static void asan_callout(GumCpuContext *ctx, gpointer user_data) {
 
-  asan_ctx_t *  asan_ctx = (asan_ctx_t *)user_data;
-  cs_arm64_op * operand = &asan_ctx->operand;
+  asan_ctx_t   *asan_ctx = (asan_ctx_t *)user_data;
+  cs_arm64_op  *operand = &asan_ctx->operand;
   arm64_op_mem *mem = &operand->mem;
   gsize         base = 0;
   gsize         index = 0;
@@ -61,7 +59,7 @@ void asan_instrument(const cs_insn *instr, GumStalkerIterator *iterator) {
 
   cs_arm64     arm64 = instr->detail->arm64;
   cs_arm64_op *operand;
-  asan_ctx_t * ctx;
+  asan_ctx_t  *ctx;
 
   if (!asan_initialized) return;
 
@@ -86,9 +84,11 @@ void asan_arch_init(void) {
   asan_storeN = (asan_loadN_t)dlsym(RTLD_DEFAULT, "__asan_storeN");
   if (asan_loadN == NULL || asan_storeN == NULL) {
 
-    FATAL("Frida ASAN failed to find '__asan_loadN' or '__asan_storeN'");
+    FFATAL("Frida ASAN failed to find '__asan_loadN' or '__asan_storeN'");
 
   }
+
+  asan_exclude_module_by_symbol("__asan_loadN");
 
 }
 

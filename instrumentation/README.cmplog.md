@@ -1,20 +1,20 @@
 # CmpLog instrumentation
 
-The CmpLog instrumentation enables logging of comparison operands in a
-shared memory.
+The CmpLog instrumentation enables logging of comparison operands in a shared
+memory.
 
-These values can be used by various mutators built on top of it.
-At the moment we support the RedQueen mutator (input-2-state instructions only), 
-for details see [the RedQueen paper](https://www.syssec.ruhr-uni-bochum.de/media/emma/veroeffentlichungen/2018/12/17/NDSS19-Redqueen.pdf).
+These values can be used by various mutators built on top of it. At the moment,
+we support the Redqueen mutator (input-2-state instructions only), for details
+see [the Redqueen paper](https://github.com/RUB-SysSec/redqueen).
 
 ## Build
 
 To use CmpLog, you have to build two versions of the instrumented target
-program.
+program:
 
-The first version is built using the regular AFL++ instrumentation.
-
-The second one, the CmpLog binary, is built with setting AFL_LLVM_CMPLOG during the compilation.
+* The first version is built using the regular AFL++ instrumentation.
+* The second one, the CmpLog binary, is built with setting `AFL_LLVM_CMPLOG`
+  during the compilation.
 
 For example:
 
@@ -32,8 +32,8 @@ unset AFL_LLVM_CMPLOG
 
 ## Use
 
-AFL++ has the new `-c` option that needs to be used to specify the CmpLog binary (the second
-build).
+AFL++ has the new `-c` option that needs to be used to specify the CmpLog binary
+(the second build).
 
 For example:
 
@@ -41,4 +41,4 @@ For example:
 afl-fuzz -i input -o output -c ./program.cmplog -m none -- ./program.afl @@
 ```
 
-Be sure to use `-m none` because CmpLog can map a lot of pages.
+Be careful with the usage of `-m` because CmpLog can map a lot of pages.

@@ -1,8 +1,9 @@
 PWD:=$(shell pwd)/
-ROOT:=$(shell realpath $(PWD)../../..)/
+ROOT:=$(PWD)../../../
 BUILD_DIR:=$(PWD)build/
 
-AFLPP_DRIVER_HOOK_OBJ=$(ROOT)frida_mode/build/hook.so
+AFLPP_FRIDA_DRIVER_HOOK_OBJ=$(ROOT)frida_mode/build/frida_hook.so
+AFLPP_QEMU_DRIVER_HOOK_OBJ=$(ROOT)frida_mode/build/qemu_hook.so
 
 LIBPCAP_BUILD_DIR:=$(BUILD_DIR)libpcap/
 HARNESS_BUILD_DIR:=$(BUILD_DIR)harness/
@@ -34,7 +35,7 @@ LDFLAGS += -lpthread
 
 TEST_BIN:=$(BUILD_DIR)test
 ifeq "$(shell uname)" "Darwin"
-TEST_BIN_LDFLAGS:=-undefined dynamic_lookup
+TEST_BIN_LDFLAGS:=-undefined dynamic_lookup -Wl,-no_pie
 endif
 
 AFLPP_DRIVER_DUMMY_INPUT:=$(TCPDUMP_TESTS_DIR)in
@@ -54,18 +55,22 @@ ifeq "$(ARCH)" "i686"
 endif
 endif
 
-AFL_QEMU_PERSISTENT_ADDR=$(shell $(PWD)get_symbol_addr.py -f $(TEST_BIN) -s LLVMFuzzerTestOneInput -b 0x4000000000)
+ADDR_BIN:=$(ROOT)frida_mode/build/addr
+GET_SYMBOL_ADDR:=$(ROOT)frida_mode/util/frida_get_symbol_addr.sh
 
-ifeq "$(ARCH)" "aarch64"
- AFL_FRIDA_PERSISTENT_ADDR=$(shell $(PWD)get_symbol_addr.py -f $(TEST_BIN) -s LLVMFuzzerTestOneInput -b 0x0000aaaaaaaaa000)
+AFL_FRIDA_BASE_ADDR:=$(shell $(ADDR_BIN))
+AFL_FRIDA_PERSISTENT_ADDR=$(shell $(GET_SYMBOL_ADDR) $(TEST_BIN) LLVMFuzzerTestOneInput $(AFL_FRIDA_BASE_ADDR))
+
+ifeq "$(ARCH)" "arm64"
+ AFL_QEMU_PERSISTENT_ADDR=$(shell $(GET_SYMBOL_ADDR) $(TEST_BIN) LLVMFuzzerTestOneInput 0x5500000000)
 endif
 
 ifeq "$(ARCH)" "x86_64"
- AFL_FRIDA_PERSISTENT_ADDR=$(shell $(PWD)get_symbol_addr.py -f $(TEST_BIN) -s LLVMFuzzerTestOneInput -b 0x0000555555554000)
+ AFL_QEMU_PERSISTENT_ADDR=$(shell $(GET_SYMBOL_ADDR) $(TEST_BIN) LLVMFuzzerTestOneInput 0x4000000000)
 endif
 
 ifeq "$(ARCH)" "x86"
- AFL_FRIDA_PERSISTENT_ADDR=$(shell $(PWD)get_symbol_addr.py -f $(TEST_BIN) -s LLVMFuzzerTestOneInput -b 0x56555000)
+ AFL_QEMU_PERSISTENT_ADDR=$(shell $(GET_SYMBOL_ADDR) $(TEST_BIN) LLVMFuzzerTestOneInput 0x4000000000)
 endif
 
 .PHONY: all clean qemu frida hook
@@ -139,15 +144,15 @@ $(TEST_BIN): $(HARNESS_OBJ) $(PCAPTEST_OBJ) $(LIBPCAP_LIB)
 ########## DUMMY #######
 
 $(AFLPP_DRIVER_DUMMY_INPUT): | $(TCPDUMP_TESTS_DIR)
-	truncate -s 1M $@
+	dd if=/dev/zero bs=1048576 count=1 of=$@
 
 ###### TEST DATA #######
 
 clean:
 	rm -rf $(BUILD_DIR)
 
-qemu: $(TEST_BIN) $(AFLPP_DRIVER_HOOK_OBJ) $(AFLPP_DRIVER_DUMMY_INPUT) | $(TCPDUMP_TESTS_DIR)
-	AFL_QEMU_PERSISTENT_HOOK=$(AFLPP_DRIVER_HOOK_OBJ) \
+qemu: $(TEST_BIN) $(AFLPP_QEMU_DRIVER_HOOK_OBJ) $(AFLPP_DRIVER_DUMMY_INPUT) | $(TCPDUMP_TESTS_DIR)
+	AFL_QEMU_PERSISTENT_HOOK=$(AFLPP_QEMU_DRIVER_HOOK_OBJ) \
 	AFL_ENTRYPOINT=$(AFL_QEMU_PERSISTENT_ADDR) \
 	AFL_QEMU_PERSISTENT_ADDR=$(AFL_QEMU_PERSISTENT_ADDR) \
 	AFL_QEMU_PERSISTENT_GPR=1 \
@@ -160,8 +165,8 @@ qemu: $(TEST_BIN) $(AFLPP_DRIVER_HOOK_OBJ) $(AFLPP_DRIVER_DUMMY_INPUT) | $(TCPDU
 		-- \
 			$(TEST_BIN) $(AFLPP_DRIVER_DUMMY_INPUT)
 
-frida: $(TEST_BIN) $(AFLPP_DRIVER_HOOK_OBJ) $(AFLPP_DRIVER_DUMMY_INPUT) | $(TCPDUMP_TESTS_DIR)
-	AFL_FRIDA_PERSISTENT_HOOK=$(AFLPP_DRIVER_HOOK_OBJ) \
+frida: $(TEST_BIN) $(AFLPP_FRIDA_DRIVER_HOOK_OBJ) $(AFLPP_DRIVER_DUMMY_INPUT) | $(TCPDUMP_TESTS_DIR)
+	AFL_FRIDA_PERSISTENT_HOOK=$(AFLPP_FRIDA_DRIVER_HOOK_OBJ) \
 	AFL_FRIDA_PERSISTENT_ADDR=$(AFL_FRIDA_PERSISTENT_ADDR) \
 	AFL_ENTRYPOINT=$(AFL_FRIDA_PERSISTENT_ADDR) \
 	$(ROOT)afl-fuzz \

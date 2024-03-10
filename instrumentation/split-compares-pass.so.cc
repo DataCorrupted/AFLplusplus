@@ -1,12 +1,13 @@
 /*
  * Copyright 2016 laf-intel
  * extended for floating point by Heiko Eißfeldt
+ * adapted to new pass manager by Heiko Eißfeldt
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,13 +29,23 @@
 
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Transforms/IPO/PassManagerBuilder.h"
+
+#if LLVM_MAJOR >= 11
+  #include "llvm/Passes/PassPlugin.h"
+  #include "llvm/Passes/PassBuilder.h"
+  #include "llvm/IR/PassManager.h"
+#else
+  #include "llvm/IR/LegacyPassManager.h"
+  #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#endif
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/IR/Module.h"
+#if LLVM_VERSION_MAJOR >= 14                /* how about stable interfaces? */
+  #include "llvm/Passes/OptimizationLevel.h"
+#endif
 
 #include "llvm/IR/IRBuilder.h"
-#if LLVM_VERSION_MAJOR > 3 || \
+#if LLVM_VERSION_MAJOR >= 4 || \
     (LLVM_VERSION_MAJOR == 3 && LLVM_VERSION_MINOR > 4)
   #include "llvm/IR/Verifier.h"
   #include "llvm/IR/DebugInfo.h"
@@ -49,31 +60,35 @@ using namespace llvm;
 
 // uncomment this toggle function verification at each step. horribly slow, but
 // helps to pinpoint a potential problem in the splitting code.
-//#define VERIFY_TOO_MUCH 1
+// #define VERIFY_TOO_MUCH 1
 
 namespace {
 
+#if LLVM_MAJOR >= 11
+class SplitComparesTransform : public PassInfoMixin<SplitComparesTransform> {
+
+ public:
+  //  static char ID;
+  SplitComparesTransform() : enableFPSplit(0) {
+
+#else
 class SplitComparesTransform : public ModulePass {
 
  public:
   static char ID;
   SplitComparesTransform() : ModulePass(ID), enableFPSplit(0) {
 
+#endif
+
     initInstrumentList();
 
   }
 
-  bool runOnModule(Module &M) override;
-#if LLVM_VERSION_MAJOR >= 4
-  StringRef getPassName() const override {
-
+#if LLVM_MAJOR >= 11
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
 #else
-  const char *getPassName() const override {
-
+  bool runOnModule(Module &M) override;
 #endif
-    return "AFL_SplitComparesTransform";
-
-  }
 
  private:
   int enableFPSplit;
@@ -162,21 +177,68 @@ class SplitComparesTransform : public ModulePass {
 
 }  // namespace
 
+#if LLVM_MAJOR >= 11
+extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK
+llvmGetPassPluginInfo() {
+
+  return {LLVM_PLUGIN_API_VERSION, "splitcompares", "v0.1",
+          /* lambda to insert our pass into the pass pipeline. */
+          [](PassBuilder &PB) {
+
+  #if 1
+    #if LLVM_VERSION_MAJOR <= 13
+            using OptimizationLevel = typename PassBuilder::OptimizationLevel;
+    #endif
+            PB.registerOptimizerLastEPCallback(
+                [](ModulePassManager &MPM, OptimizationLevel OL) {
+
+                  MPM.addPass(SplitComparesTransform());
+
+                });
+
+  /* TODO LTO registration */
+  #else
+            using PipelineElement = typename PassBuilder::PipelineElement;
+            PB.registerPipelineParsingCallback([](StringRef          Name,
+                                                  ModulePassManager &MPM,
+                                                  ArrayRef<PipelineElement>) {
+
+              if (Name == "splitcompares") {
+
+                MPM.addPass(SplitComparesTransform());
+                return true;
+
+              } else {
+
+                return false;
+
+              }
+
+            });
+
+  #endif
+
+          }};
+
+}
+
+#else
 char SplitComparesTransform::ID = 0;
+#endif
 
 /// This function splits FCMP instructions with xGE or xLE predicates into two
 /// FCMP instructions with predicate xGT or xLT and EQ
 bool SplitComparesTransform::simplifyFPCompares(Module &M) {
 
-  LLVMContext &              C = M.getContext();
+  LLVMContext               &C = M.getContext();
   std::vector<Instruction *> fcomps;
-  IntegerType *              Int1Ty = IntegerType::getInt1Ty(C);
+  IntegerType               *Int1Ty = IntegerType::getInt1Ty(C);
 
   /* iterate over all functions, bbs and instruction and add
    * all integer comparisons with >= and <= predicates to the icomps vector */
   for (auto &F : M) {
 
-    if (!isInInstrumentList(&F)) continue;
+    if (!isInInstrumentList(&F, MNAME)) continue;
 
     for (auto &BB : F) {
 
@@ -260,8 +322,12 @@ bool SplitComparesTransform::simplifyFPCompares(Module &M) {
      * block bb it is now at the position where the old FcmpInst was */
     Instruction *fcmp_np;
     fcmp_np = CmpInst::Create(Instruction::FCmp, new_pred, op0, op1);
+#if LLVM_MAJOR >= 16
+    fcmp_np->insertInto(bb, BasicBlock::iterator(bb->getTerminator()));
+#else
     bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()),
                              fcmp_np);
+#endif
 
     /* create a new basic block which holds the new EQ fcmp */
     Instruction *fcmp_eq;
@@ -269,7 +335,11 @@ bool SplitComparesTransform::simplifyFPCompares(Module &M) {
     BasicBlock *middle_bb =
         BasicBlock::Create(C, "injected", end_bb->getParent(), end_bb);
     fcmp_eq = CmpInst::Create(Instruction::FCmp, CmpInst::FCMP_OEQ, op0, op1);
+#if LLVM_MAJOR >= 16
+    fcmp_eq->insertInto(middle_bb, middle_bb->end());
+#else
     middle_bb->getInstList().push_back(fcmp_eq);
+#endif
     /* add an unconditional branch to the end of middle_bb with destination
      * end_bb */
     BranchInst::Create(end_bb, middle_bb);
@@ -290,7 +360,11 @@ bool SplitComparesTransform::simplifyFPCompares(Module &M) {
     PN->addIncoming(ConstantInt::get(Int1Ty, 1), bb);
     /* replace the old FcmpInst with our new and shiny PHI inst */
     BasicBlock::iterator ii(FcmpInst);
+#if LLVM_MAJOR >= 16
+    ReplaceInstWithInst(FcmpInst->getParent(), ii, PN);
+#else
     ReplaceInstWithInst(FcmpInst->getParent()->getInstList(), ii, PN);
+#endif
 
   }
 
@@ -300,8 +374,8 @@ bool SplitComparesTransform::simplifyFPCompares(Module &M) {
 
 /// This function splits ICMP instructions with xGE or xLE predicates into two
 /// ICMP instructions with predicate xGT or xLT and EQ
-bool SplitComparesTransform::simplifyOrEqualsCompare(CmpInst *    IcmpInst,
-                                                     Module &     M,
+bool SplitComparesTransform::simplifyOrEqualsCompare(CmpInst     *IcmpInst,
+                                                     Module      &M,
                                                      CmpWorklist &worklist) {
 
   LLVMContext &C = M.getContext();
@@ -347,7 +421,11 @@ bool SplitComparesTransform::simplifyOrEqualsCompare(CmpInst *    IcmpInst,
   /* create the ICMP instruction with new_pred and add it to the old basic
    * block bb it is now at the position where the old IcmpInst was */
   CmpInst *icmp_np = CmpInst::Create(Instruction::ICmp, new_pred, op0, op1);
+#if LLVM_MAJOR >= 16
+  icmp_np->insertInto(bb, BasicBlock::iterator(bb->getTerminator()));
+#else
   bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()), icmp_np);
+#endif
 
   /* create a new basic block which holds the new EQ icmp */
   CmpInst *icmp_eq;
@@ -355,7 +433,11 @@ bool SplitComparesTransform::simplifyOrEqualsCompare(CmpInst *    IcmpInst,
   BasicBlock *middle_bb =
       BasicBlock::Create(C, "injected", end_bb->getParent(), end_bb);
   icmp_eq = CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, op0, op1);
+#if LLVM_MAJOR >= 16
+  icmp_eq->insertInto(middle_bb, middle_bb->end());
+#else
   middle_bb->getInstList().push_back(icmp_eq);
+#endif
   /* add an unconditional branch to the end of middle_bb with destination
    * end_bb */
   BranchInst::Create(end_bb, middle_bb);
@@ -376,9 +458,17 @@ bool SplitComparesTransform::simplifyOrEqualsCompare(CmpInst *    IcmpInst,
   PN->addIncoming(ConstantInt::get(Int1Ty, 1), bb);
   /* replace the old IcmpInst with our new and shiny PHI inst */
   BasicBlock::iterator ii(IcmpInst);
+#if LLVM_MAJOR >= 16
+  ReplaceInstWithInst(IcmpInst->getParent(), ii, PN);
+#else
   ReplaceInstWithInst(IcmpInst->getParent()->getInstList(), ii, PN);
+#endif
+  if (new_pred == CmpInst::ICMP_SGT || new_pred == CmpInst::ICMP_SLT) {
 
-  worklist.push_back(icmp_np);
+    simplifySignedCompare(icmp_np, M, worklist);
+
+  }
+
   worklist.push_back(icmp_eq);
 
   return true;
@@ -436,7 +526,7 @@ bool SplitComparesTransform::simplifySignedCompare(CmpInst *IcmpInst, Module &M,
 
   /* create a new basic block which is executed if the signedness bit is
    * different */
-  CmpInst *   icmp_inv_sig_cmp;
+  CmpInst    *icmp_inv_sig_cmp;
   BasicBlock *sign_bb =
       BasicBlock::Create(C, "sign", end_bb->getParent(), end_bb);
   if (pred == CmpInst::ICMP_SGT) {
@@ -456,17 +546,25 @@ bool SplitComparesTransform::simplifySignedCompare(CmpInst *IcmpInst, Module &M,
 
   }
 
+#if LLVM_MAJOR >= 16
+  icmp_inv_sig_cmp->insertInto(sign_bb, sign_bb->end());
+#else
   sign_bb->getInstList().push_back(icmp_inv_sig_cmp);
+#endif
   BranchInst::Create(end_bb, sign_bb);
 
   /* create a new bb which is executed if signedness is equal */
-  CmpInst *   icmp_usign_cmp;
+  CmpInst    *icmp_usign_cmp;
   BasicBlock *middle_bb =
       BasicBlock::Create(C, "injected", end_bb->getParent(), end_bb);
   /* we can do a normal unsigned compare now */
   icmp_usign_cmp = CmpInst::Create(Instruction::ICmp, new_pred, op0, op1);
 
+#if LLVM_MAJOR >= 16
+  icmp_usign_cmp->insertInto(middle_bb, middle_bb->end());
+#else
   middle_bb->getInstList().push_back(icmp_usign_cmp);
+#endif
   BranchInst::Create(end_bb, middle_bb);
 
   auto term = bb->getTerminator();
@@ -481,7 +579,11 @@ bool SplitComparesTransform::simplifySignedCompare(CmpInst *IcmpInst, Module &M,
   PN->addIncoming(icmp_inv_sig_cmp, sign_bb);
 
   BasicBlock::iterator ii(IcmpInst);
+#if LLVM_MAJOR >= 16
+  ReplaceInstWithInst(IcmpInst->getParent(), ii, PN);
+#else
   ReplaceInstWithInst(IcmpInst->getParent()->getInstList(), ii, PN);
+#endif
 
   // save for later
   worklist.push_back(icmp_usign_cmp);
@@ -504,8 +606,17 @@ bool SplitComparesTransform::splitCompare(CmpInst *cmp_inst, Module &M,
     case CmpInst::ICMP_NE:
     case CmpInst::ICMP_UGT:
     case CmpInst::ICMP_ULT:
+    case CmpInst::ICMP_UGE:
+    case CmpInst::ICMP_ULE:
+    case CmpInst::ICMP_SGT:
+    case CmpInst::ICMP_SLT:
+    case CmpInst::ICMP_SGE:
+    case CmpInst::ICMP_SLE:
       break;
     default:
+      if (!be_quiet)
+        fprintf(stderr, "Error: split-compare: Unsupported predicate (%u)\n",
+                pred);
       // unsupported predicate!
       return false;
 
@@ -519,6 +630,8 @@ bool SplitComparesTransform::splitCompare(CmpInst *cmp_inst, Module &M,
   if (!intTyOp0) {
 
     // not an integer type
+    if (!be_quiet)
+      fprintf(stderr, "Error: split-compare: not an integer type\n");
     return false;
 
   }
@@ -533,11 +646,11 @@ bool SplitComparesTransform::splitCompare(CmpInst *cmp_inst, Module &M,
 
   LLVMContext &C = M.getContext();
   IntegerType *Int1Ty = IntegerType::getInt1Ty(C);
-  BasicBlock * bb = cmp_inst->getParent();
+  BasicBlock  *bb = cmp_inst->getParent();
   IntegerType *OldIntType = IntegerType::get(C, bitw);
   IntegerType *NewIntType = IntegerType::get(C, bitw / 2);
-  BasicBlock * end_bb = bb->splitBasicBlock(BasicBlock::iterator(cmp_inst));
-  CmpInst *    icmp_high, *icmp_low;
+  BasicBlock  *end_bb = bb->splitBasicBlock(BasicBlock::iterator(cmp_inst));
+  CmpInst     *icmp_high, *icmp_low;
 
   /* create the comparison of the top halves of the original operands */
   Value *s_op0, *op0_high, *s_op1, *op1_high;
@@ -567,7 +680,7 @@ bool SplitComparesTransform::splitCompare(CmpInst *cmp_inst, Module &M,
       BasicBlock *cmp_low_bb =
           BasicBlock::Create(C, "" /*"injected"*/, end_bb->getParent(), end_bb);
 
-      Value *     op0_low, *op1_low;
+      Value      *op0_low, *op1_low;
       IRBuilder<> Builder(cmp_low_bb);
 
       op0_low = Builder.CreateTrunc(op0, NewIntType);
@@ -578,16 +691,16 @@ bool SplitComparesTransform::splitCompare(CmpInst *cmp_inst, Module &M,
 
       /* dependent on the cmp of the high parts go to the end or go on with
        * the comparison */
-      auto        term = bb->getTerminator();
-      BranchInst *br = nullptr;
+      auto term = bb->getTerminator();
+
       if (pred == CmpInst::ICMP_EQ) {
 
-        br = BranchInst::Create(cmp_low_bb, end_bb, icmp_high, bb);
+        BranchInst::Create(cmp_low_bb, end_bb, icmp_high, bb);
 
       } else {
 
-        /* CmpInst::ICMP_NE */
-        br = BranchInst::Create(end_bb, cmp_low_bb, icmp_high, bb);
+        // CmpInst::ICMP_NE
+        BranchInst::Create(end_bb, cmp_low_bb, icmp_high, bb);
 
       }
 
@@ -613,6 +726,12 @@ bool SplitComparesTransform::splitCompare(CmpInst *cmp_inst, Module &M,
 
     }
 
+    case CmpInst::ICMP_SGE:
+    case CmpInst::ICMP_SLE:
+    case CmpInst::ICMP_SGT:
+    case CmpInst::ICMP_SLT:
+    case CmpInst::ICMP_UGE:
+    case CmpInst::ICMP_ULE:
     case CmpInst::ICMP_UGT:
     case CmpInst::ICMP_ULT: {
 
@@ -622,22 +741,34 @@ bool SplitComparesTransform::splitCompare(CmpInst *cmp_inst, Module &M,
        * if this is true we can go to the end if not we have to go to the
        * bb which checks the lower half of the operands */
       Instruction *op0_low, *op1_low;
-      CmpInst *    icmp_inv_cmp = nullptr;
-      BasicBlock * inv_cmp_bb =
+      CmpInst     *icmp_inv_cmp = nullptr;
+      BasicBlock  *inv_cmp_bb =
           BasicBlock::Create(C, "inv_cmp", end_bb->getParent(), end_bb);
       if (pred == CmpInst::ICMP_UGT) {
 
         icmp_inv_cmp = CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_ULT,
                                        op0_high, op1_high);
 
-      } else {
+      } else if (pred == CmpInst::ICMP_ULT) {
 
         icmp_inv_cmp = CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_UGT,
                                        op0_high, op1_high);
 
+      } else {
+
+        // Never gonna appen
+        if (!be_quiet)
+          fprintf(stderr,
+                  "Error: split-compare: Equals or signed not removed: %d\n",
+                  pred);
+
       }
 
+#if LLVM_MAJOR >= 16
+      icmp_inv_cmp->insertInto(inv_cmp_bb, inv_cmp_bb->end());
+#else
       inv_cmp_bb->getInstList().push_back(icmp_inv_cmp);
+#endif
       worklist.push_back(icmp_inv_cmp);
 
       auto term = bb->getTerminator();
@@ -648,12 +779,18 @@ bool SplitComparesTransform::splitCompare(CmpInst *cmp_inst, Module &M,
       BasicBlock *cmp_low_bb =
           BasicBlock::Create(C, "" /*"injected"*/, end_bb->getParent(), end_bb);
       op0_low = new TruncInst(op0, NewIntType);
-      cmp_low_bb->getInstList().push_back(op0_low);
       op1_low = new TruncInst(op1, NewIntType);
-      cmp_low_bb->getInstList().push_back(op1_low);
-
       icmp_low = CmpInst::Create(Instruction::ICmp, pred, op0_low, op1_low);
+
+#if LLVM_MAJOR >= 16
+      op0_low->insertInto(cmp_low_bb, cmp_low_bb->end());
+      op1_low->insertInto(cmp_low_bb, cmp_low_bb->end());
+      icmp_low->insertInto(cmp_low_bb, cmp_low_bb->end());
+#else
+      cmp_low_bb->getInstList().push_back(op0_low);
+      cmp_low_bb->getInstList().push_back(op1_low);
       cmp_low_bb->getInstList().push_back(icmp_low);
+#endif
       BranchInst::Create(end_bb, cmp_low_bb);
 
       BranchInst::Create(end_bb, cmp_low_bb, icmp_inv_cmp, inv_cmp_bb);
@@ -667,15 +804,21 @@ bool SplitComparesTransform::splitCompare(CmpInst *cmp_inst, Module &M,
     }
 
     default:
+      if (!be_quiet)
+        fprintf(stderr, "Error: split-compare: should not happen\n");
       return false;
 
   }
 
   BasicBlock::iterator ii(cmp_inst);
+#if LLVM_MAJOR >= 16
+  ReplaceInstWithInst(cmp_inst->getParent(), ii, PN);
+#else
   ReplaceInstWithInst(cmp_inst->getParent()->getInstList(), ii, PN);
+#endif
 
   // We split the comparison into low and high. If this isn't our target
-  // bitwidth we recursivly split the low and high parts again until we have
+  // bitwidth we recursively split the low and high parts again until we have
   // target bitwidth.
   if ((bitw / 2) > target_bitwidth) {
 
@@ -796,7 +939,7 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
 
   LLVMContext &C = M.getContext();
 
-#if LLVM_VERSION_MAJOR > 3 || \
+#if LLVM_VERSION_MAJOR >= 4 || \
     (LLVM_VERSION_MAJOR == 3 && LLVM_VERSION_MINOR > 7)
   const DataLayout &dl = M.getDataLayout();
 
@@ -820,7 +963,7 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
    * functions were executed only these four predicates should exist */
   for (auto &F : M) {
 
-    if (!isInInstrumentList(&F)) continue;
+    if (!isInInstrumentList(&F, MNAME)) continue;
 
     for (auto &BB : F) {
 
@@ -882,6 +1025,7 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
     // BUG FIXME TODO: u64 does not work for > 64 bit ... e.g. 80 and 128 bit
     if (sizeInBits > 64) { continue; }
 
+    IntegerType       *intType = IntegerType::get(C, op_size);
     const unsigned int precision = sizeInBits == 32    ? 24
                                    : sizeInBits == 64  ? 53
                                    : sizeInBits == 128 ? 113
@@ -913,14 +1057,133 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
     BasicBlock *end_bb = bb->splitBasicBlock(BasicBlock::iterator(FcmpInst));
 
     /* create the integers from floats directly */
-    Instruction *b_op0, *b_op1;
-    b_op0 = CastInst::Create(Instruction::BitCast, op0,
-                             IntegerType::get(C, op_size));
-    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()), b_op0);
+    Instruction *bpre_op0, *bpre_op1;
+    bpre_op0 = CastInst::Create(Instruction::BitCast, op0,
+                                IntegerType::get(C, op_size));
+#if LLVM_MAJOR >= 16
+    bpre_op0->insertInto(bb, BasicBlock::iterator(bb->getTerminator()));
+#else
+    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()),
+                             bpre_op0);
+#endif
 
-    b_op1 = CastInst::Create(Instruction::BitCast, op1,
-                             IntegerType::get(C, op_size));
-    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()), b_op1);
+    bpre_op1 = CastInst::Create(Instruction::BitCast, op1,
+                                IntegerType::get(C, op_size));
+#if LLVM_MAJOR >= 16
+    bpre_op1->insertInto(bb, BasicBlock::iterator(bb->getTerminator()));
+#else
+    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()),
+                             bpre_op1);
+#endif
+
+    /* Check if any operand is NaN.
+     * If so, all comparisons except unequal (which yields true) yield false */
+
+    /* build mask for NaN */
+    const unsigned long long NaN_lowend = mask_exponent << precision;
+    //    errs() << "Fractions: IntFractionTy size " <<
+    //     IntFractionTy->getPrimitiveSizeInBits() << ", op_size " << op_size <<
+    //     ", mask_fraction 0x";
+    //    errs().write_hex(mask_fraction);
+    //    errs() << ", precision " << precision <<
+    //     ", NaN_lowend 0x";
+    //    errs().write_hex(NaN_lowend); errs() << "\n";
+
+    /* Check op0 for NaN */
+    /* Shift left 1 Bit, ignore sign bit */
+    Instruction *nan_op0, *nan_op1;
+    nan_op0 = BinaryOperator::Create(Instruction::Shl, bpre_op0,
+                                     ConstantInt::get(bpre_op0->getType(), 1));
+    /* Check op1 for NaN */
+    /* Shift right 1 Bit, ignore sign bit */
+    nan_op1 = BinaryOperator::Create(Instruction::Shl, bpre_op1,
+                                     ConstantInt::get(bpre_op1->getType(), 1));
+    /* compare to NaN interval */
+    Instruction *is_op0_nan =
+        CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_UGT, nan_op0,
+                        ConstantInt::get(intType, NaN_lowend));
+    /* compare to NaN interval */
+    Instruction *is_op1_nan =
+        CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_UGT, nan_op1,
+                        ConstantInt::get(intType, NaN_lowend));
+    /* combine checks */
+    Instruction *is_nan =
+        BinaryOperator::Create(Instruction::Or, is_op0_nan, is_op1_nan);
+#if LLVM_MAJOR >= 16
+    nan_op0->insertInto(bb, BasicBlock::iterator(bb->getTerminator()));
+    is_op0_nan->insertInto(bb, BasicBlock::iterator(bb->getTerminator()));
+    nan_op1->insertInto(bb, BasicBlock::iterator(bb->getTerminator()));
+    is_op1_nan->insertInto(bb, BasicBlock::iterator(bb->getTerminator()));
+    is_nan->insertInto(bb, BasicBlock::iterator(bb->getTerminator()));
+#else
+    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()),
+                             nan_op0);
+
+    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()),
+                             is_op0_nan);
+
+    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()),
+                             nan_op1);
+
+    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()),
+                             is_op1_nan);
+
+    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()), is_nan);
+#endif
+
+    /* the result of the comparison, when at least one op is NaN
+       is true only for the "NOT EQUAL" predicates. */
+    bool NaNcmp_result = FcmpInst->getPredicate() == CmpInst::FCMP_ONE ||
+                         FcmpInst->getPredicate() == CmpInst::FCMP_UNE;
+
+    BasicBlock *nonan_bb =
+        BasicBlock::Create(C, "noNaN", end_bb->getParent(), end_bb);
+
+    BranchInst::Create(end_bb, nonan_bb);
+
+    auto term = bb->getTerminator();
+    /* if no operand is NaN goto nonan_bb else to handleNaN_bb */
+    BranchInst::Create(end_bb, nonan_bb, is_nan, bb);
+    term->eraseFromParent();
+
+    /*** now working in nonan_bb ***/
+
+    /* Treat -0.0 as equal to +0.0, that is for -0.0 make it +0.0 */
+    Instruction             *b_op0, *b_op1;
+    Instruction             *isMzero_op0, *isMzero_op1;
+    const unsigned long long MinusZero = 1UL << (sizeInBits - 1U);
+    const unsigned long long PlusZero = 0;
+
+    isMzero_op0 = CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, bpre_op0,
+                                  ConstantInt::get(intType, MinusZero));
+    isMzero_op1 = CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, bpre_op1,
+                                  ConstantInt::get(intType, MinusZero));
+    b_op0 = SelectInst::Create(isMzero_op0, ConstantInt::get(intType, PlusZero),
+                               bpre_op0);
+    b_op1 = SelectInst::Create(isMzero_op1, ConstantInt::get(intType, PlusZero),
+                               bpre_op1);
+#if LLVM_MAJOR >= 16
+    isMzero_op0->insertInto(nonan_bb,
+                            BasicBlock::iterator(nonan_bb->getTerminator()));
+    isMzero_op1->insertInto(nonan_bb,
+                            BasicBlock::iterator(nonan_bb->getTerminator()));
+    b_op0->insertInto(nonan_bb,
+                      BasicBlock::iterator(nonan_bb->getTerminator()));
+    b_op1->insertInto(nonan_bb,
+                      BasicBlock::iterator(nonan_bb->getTerminator()));
+#else
+    nonan_bb->getInstList().insert(
+        BasicBlock::iterator(nonan_bb->getTerminator()), isMzero_op0);
+
+    nonan_bb->getInstList().insert(
+        BasicBlock::iterator(nonan_bb->getTerminator()), isMzero_op1);
+
+    nonan_bb->getInstList().insert(
+        BasicBlock::iterator(nonan_bb->getTerminator()), b_op0);
+
+    nonan_bb->getInstList().insert(
+        BasicBlock::iterator(nonan_bb->getTerminator()), b_op1);
+#endif
 
     /* isolate signs of value of floating point type */
 
@@ -931,22 +1194,35 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
     s_s0 =
         BinaryOperator::Create(Instruction::LShr, b_op0,
                                ConstantInt::get(b_op0->getType(), op_size - 1));
-    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()), s_s0);
-    t_s0 = new TruncInst(s_s0, Int1Ty);
-    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()), t_s0);
-
     s_s1 =
         BinaryOperator::Create(Instruction::LShr, b_op1,
                                ConstantInt::get(b_op1->getType(), op_size - 1));
-    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()), s_s1);
+    t_s0 = new TruncInst(s_s0, Int1Ty);
     t_s1 = new TruncInst(s_s1, Int1Ty);
-    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()), t_s1);
-
     /* compare of the sign bits */
     icmp_sign_bit =
         CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, t_s0, t_s1);
-    bb->getInstList().insert(BasicBlock::iterator(bb->getTerminator()),
-                             icmp_sign_bit);
+#if LLVM_MAJOR >= 16
+    s_s0->insertInto(nonan_bb, BasicBlock::iterator(nonan_bb->getTerminator()));
+    t_s0->insertInto(nonan_bb, BasicBlock::iterator(nonan_bb->getTerminator()));
+    s_s1->insertInto(nonan_bb, BasicBlock::iterator(nonan_bb->getTerminator()));
+    t_s1->insertInto(nonan_bb, BasicBlock::iterator(nonan_bb->getTerminator()));
+    icmp_sign_bit->insertInto(nonan_bb,
+                              BasicBlock::iterator(nonan_bb->getTerminator()));
+#else
+    nonan_bb->getInstList().insert(
+        BasicBlock::iterator(nonan_bb->getTerminator()), s_s0);
+    nonan_bb->getInstList().insert(
+        BasicBlock::iterator(nonan_bb->getTerminator()), t_s0);
+
+    nonan_bb->getInstList().insert(
+        BasicBlock::iterator(nonan_bb->getTerminator()), s_s1);
+    nonan_bb->getInstList().insert(
+        BasicBlock::iterator(nonan_bb->getTerminator()), t_s1);
+
+    nonan_bb->getInstList().insert(
+        BasicBlock::iterator(nonan_bb->getTerminator()), icmp_sign_bit);
+#endif
 
     /* create a new basic block which is executed if the signedness bits are
      * equal */
@@ -962,9 +1238,9 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
 
     BranchInst::Create(end_bb, middle_bb);
 
-    auto term = bb->getTerminator();
+    term = nonan_bb->getTerminator();
     /* if the signs are different goto end_bb else to signequal_bb */
-    BranchInst::Create(signequal_bb, end_bb, icmp_sign_bit, bb);
+    BranchInst::Create(signequal_bb, end_bb, icmp_sign_bit, nonan_bb);
     term->eraseFromParent();
 
     /* insert code for equal signs */
@@ -978,17 +1254,31 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
     s_e1 = BinaryOperator::Create(
         Instruction::LShr, b_op1,
         ConstantInt::get(b_op1->getType(), shiftR_exponent));
+#if LLVM_MAJOR >= 16
+    s_e0->insertInto(signequal_bb,
+                     BasicBlock::iterator(signequal_bb->getTerminator()));
+    s_e1->insertInto(signequal_bb,
+                     BasicBlock::iterator(signequal_bb->getTerminator()));
+#else
     signequal_bb->getInstList().insert(
         BasicBlock::iterator(signequal_bb->getTerminator()), s_e0);
     signequal_bb->getInstList().insert(
         BasicBlock::iterator(signequal_bb->getTerminator()), s_e1);
+#endif
 
     t_e0 = new TruncInst(s_e0, IntExponentTy);
     t_e1 = new TruncInst(s_e1, IntExponentTy);
+#if LLVM_MAJOR >= 16
+    t_e0->insertInto(signequal_bb,
+                     BasicBlock::iterator(signequal_bb->getTerminator()));
+    t_e1->insertInto(signequal_bb,
+                     BasicBlock::iterator(signequal_bb->getTerminator()));
+#else
     signequal_bb->getInstList().insert(
         BasicBlock::iterator(signequal_bb->getTerminator()), t_e0);
     signequal_bb->getInstList().insert(
         BasicBlock::iterator(signequal_bb->getTerminator()), t_e1);
+#endif
 
     if (sizeInBits - precision < exTySizeBytes * 8) {
 
@@ -998,10 +1288,17 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
       m_e1 = BinaryOperator::Create(
           Instruction::And, t_e1,
           ConstantInt::get(t_e1->getType(), mask_exponent));
+#if LLVM_MAJOR >= 16
+      m_e0->insertInto(signequal_bb,
+                       BasicBlock::iterator(signequal_bb->getTerminator()));
+      m_e1->insertInto(signequal_bb,
+                       BasicBlock::iterator(signequal_bb->getTerminator()));
+#else
       signequal_bb->getInstList().insert(
           BasicBlock::iterator(signequal_bb->getTerminator()), m_e0);
       signequal_bb->getInstList().insert(
           BasicBlock::iterator(signequal_bb->getTerminator()), m_e1);
+#endif
 
     } else {
 
@@ -1013,7 +1310,7 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
     /* compare the exponents of the operands */
     Instruction *icmp_exponents_equal;
     Instruction *icmp_exponent_result;
-    BasicBlock * signequal2_bb = signequal_bb;
+    BasicBlock  *signequal2_bb = signequal_bb;
     switch (FcmpInst->getPredicate()) {
 
       case CmpInst::FCMP_UEQ:
@@ -1035,9 +1332,14 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
         Instruction *icmp_exponent;
         icmp_exponents_equal =
             CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, m_e0, m_e1);
+#if LLVM_MAJOR >= 16
+        icmp_exponents_equal->insertInto(
+            signequal_bb, BasicBlock::iterator(signequal_bb->getTerminator()));
+#else
         signequal_bb->getInstList().insert(
             BasicBlock::iterator(signequal_bb->getTerminator()),
             icmp_exponents_equal);
+#endif
 
         // shortcut for unequal exponents
         signequal2_bb = signequal_bb->splitBasicBlock(
@@ -1051,9 +1353,15 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
 
         icmp_exponent =
             CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_UGT, m_e0, m_e1);
+#if LLVM_MAJOR >= 16
+        icmp_exponent->insertInto(
+            signequal2_bb,
+            BasicBlock::iterator(signequal2_bb->getTerminator()));
+#else
         signequal2_bb->getInstList().insert(
             BasicBlock::iterator(signequal2_bb->getTerminator()),
             icmp_exponent);
+#endif
         icmp_exponent_result =
             BinaryOperator::Create(Instruction::Xor, icmp_exponent, t_s0);
         break;
@@ -1061,9 +1369,14 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
       case CmpInst::FCMP_ULT:
         icmp_exponents_equal =
             CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, m_e0, m_e1);
+#if LLVM_MAJOR >= 16
+        icmp_exponents_equal->insertInto(
+            signequal_bb, BasicBlock::iterator(signequal_bb->getTerminator()));
+#else
         signequal_bb->getInstList().insert(
             BasicBlock::iterator(signequal_bb->getTerminator()),
             icmp_exponents_equal);
+#endif
 
         // shortcut for unequal exponents
         signequal2_bb = signequal_bb->splitBasicBlock(
@@ -1077,9 +1390,15 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
 
         icmp_exponent =
             CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_ULT, m_e0, m_e1);
+#if LLVM_MAJOR >= 16
+        icmp_exponent->insertInto(
+            signequal2_bb,
+            BasicBlock::iterator(signequal2_bb->getTerminator()));
+#else
         signequal2_bb->getInstList().insert(
             BasicBlock::iterator(signequal2_bb->getTerminator()),
             icmp_exponent);
+#endif
         icmp_exponent_result =
             BinaryOperator::Create(Instruction::Xor, icmp_exponent, t_s0);
         break;
@@ -1088,9 +1407,14 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
 
     }
 
+#if LLVM_MAJOR >= 16
+    icmp_exponent_result->insertInto(
+        signequal2_bb, BasicBlock::iterator(signequal2_bb->getTerminator()));
+#else
     signequal2_bb->getInstList().insert(
         BasicBlock::iterator(signequal2_bb->getTerminator()),
         icmp_exponent_result);
+#endif
 
     {
 
@@ -1140,19 +1464,33 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
       m_f1 = BinaryOperator::Create(
           Instruction::And, b_op1,
           ConstantInt::get(b_op1->getType(), mask_fraction));
+#if LLVM_MAJOR >= 16
+      m_f0->insertInto(middle_bb,
+                       BasicBlock::iterator(middle_bb->getTerminator()));
+      m_f1->insertInto(middle_bb,
+                       BasicBlock::iterator(middle_bb->getTerminator()));
+#else
       middle_bb->getInstList().insert(
           BasicBlock::iterator(middle_bb->getTerminator()), m_f0);
       middle_bb->getInstList().insert(
           BasicBlock::iterator(middle_bb->getTerminator()), m_f1);
+#endif
 
       if (needTrunc) {
 
         t_f0 = new TruncInst(m_f0, IntFractionTy);
         t_f1 = new TruncInst(m_f1, IntFractionTy);
+#if LLVM_MAJOR >= 16
+        t_f0->insertInto(middle_bb,
+                         BasicBlock::iterator(middle_bb->getTerminator()));
+        t_f1->insertInto(middle_bb,
+                         BasicBlock::iterator(middle_bb->getTerminator()));
+#else
         middle_bb->getInstList().insert(
             BasicBlock::iterator(middle_bb->getTerminator()), t_f0);
         middle_bb->getInstList().insert(
             BasicBlock::iterator(middle_bb->getTerminator()), t_f1);
+#endif
 
       } else {
 
@@ -1167,10 +1505,17 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
 
         t_f0 = new TruncInst(b_op0, IntFractionTy);
         t_f1 = new TruncInst(b_op1, IntFractionTy);
+#if LLVM_MAJOR >= 16
+        t_f0->insertInto(middle_bb,
+                         BasicBlock::iterator(middle_bb->getTerminator()));
+        t_f1->insertInto(middle_bb,
+                         BasicBlock::iterator(middle_bb->getTerminator()));
+#else
         middle_bb->getInstList().insert(
             BasicBlock::iterator(middle_bb->getTerminator()), t_f0);
         middle_bb->getInstList().insert(
             BasicBlock::iterator(middle_bb->getTerminator()), t_f1);
+#endif
 
       } else {
 
@@ -1183,26 +1528,36 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
 
     /* compare the fractions of the operands */
     Instruction *icmp_fraction_result;
-    BasicBlock * middle2_bb = middle_bb;
-    PHINode *    PN2 = nullptr;
+    BasicBlock  *middle2_bb = middle_bb;
+    PHINode     *PN2 = nullptr;
     switch (FcmpInst->getPredicate()) {
 
       case CmpInst::FCMP_UEQ:
       case CmpInst::FCMP_OEQ:
         icmp_fraction_result =
             CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, t_f0, t_f1);
+#if LLVM_MAJOR >= 16
+        icmp_fraction_result->insertInto(
+            middle2_bb, BasicBlock::iterator(middle2_bb->getTerminator()));
+#else
         middle2_bb->getInstList().insert(
             BasicBlock::iterator(middle2_bb->getTerminator()),
             icmp_fraction_result);
+#endif
 
         break;
       case CmpInst::FCMP_UNE:
       case CmpInst::FCMP_ONE:
         icmp_fraction_result =
             CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_NE, t_f0, t_f1);
+#if LLVM_MAJOR >= 16
+        icmp_fraction_result->insertInto(
+            middle2_bb, BasicBlock::iterator(middle2_bb->getTerminator()));
+#else
         middle2_bb->getInstList().insert(
             BasicBlock::iterator(middle2_bb->getTerminator()),
             icmp_fraction_result);
+#endif
 
         break;
       case CmpInst::FCMP_OGT:
@@ -1223,21 +1578,31 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
         if (FcmpInst->getPredicate() == CmpInst::FCMP_OGT ||
             FcmpInst->getPredicate() == CmpInst::FCMP_UGT) {
 
-          negative_bb->getInstList().push_back(
-              icmp_fraction_result = CmpInst::Create(
-                  Instruction::ICmp, CmpInst::ICMP_ULT, t_f0, t_f1));
-          positive_bb->getInstList().push_back(
-              icmp_fraction_result2 = CmpInst::Create(
-                  Instruction::ICmp, CmpInst::ICMP_UGT, t_f0, t_f1));
+          icmp_fraction_result =
+              CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_ULT, t_f0, t_f1);
+          icmp_fraction_result2 =
+              CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_UGT, t_f0, t_f1);
+#if LLVM_MAJOR >= 16
+          icmp_fraction_result->insertInto(negative_bb, negative_bb->end());
+          icmp_fraction_result2->insertInto(positive_bb, positive_bb->end());
+#else
+          negative_bb->getInstList().push_back(icmp_fraction_result);
+          positive_bb->getInstList().push_back(icmp_fraction_result2);
+#endif
 
         } else {
 
-          negative_bb->getInstList().push_back(
-              icmp_fraction_result = CmpInst::Create(
-                  Instruction::ICmp, CmpInst::ICMP_UGT, t_f0, t_f1));
-          positive_bb->getInstList().push_back(
-              icmp_fraction_result2 = CmpInst::Create(
-                  Instruction::ICmp, CmpInst::ICMP_ULT, t_f0, t_f1));
+          icmp_fraction_result =
+              CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_UGT, t_f0, t_f1);
+          icmp_fraction_result2 =
+              CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_ULT, t_f0, t_f1);
+#if LLVM_MAJOR >= 16
+          icmp_fraction_result->insertInto(negative_bb, negative_bb->end());
+          icmp_fraction_result2->insertInto(positive_bb, positive_bb->end());
+#else
+          negative_bb->getInstList().push_back(icmp_fraction_result);
+          positive_bb->getInstList().push_back(icmp_fraction_result2);
+#endif
 
         }
 
@@ -1251,8 +1616,13 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
         PN2 = PHINode::Create(Int1Ty, 2, "");
         PN2->addIncoming(icmp_fraction_result, negative_bb);
         PN2->addIncoming(icmp_fraction_result2, positive_bb);
+#if LLVM_MAJOR >= 16
+        PN2->insertInto(middle2_bb,
+                        BasicBlock::iterator(middle2_bb->getTerminator()));
+#else
         middle2_bb->getInstList().insert(
             BasicBlock::iterator(middle2_bb->getTerminator()), PN2);
+#endif
 
       } break;
 
@@ -1261,7 +1631,7 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
 
     }
 
-    PHINode *PN = PHINode::Create(Int1Ty, 3, "");
+    PHINode *PN = PHINode::Create(Int1Ty, 4, "");
 
     switch (FcmpInst->getPredicate()) {
 
@@ -1269,37 +1639,45 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
       case CmpInst::FCMP_OEQ:
         /* unequal signs cannot be equal values */
         /* goto false branch */
-        PN->addIncoming(ConstantInt::get(Int1Ty, 0), bb);
+        PN->addIncoming(ConstantInt::get(Int1Ty, 0), nonan_bb);
         /* unequal exponents cannot be equal values, too */
         PN->addIncoming(ConstantInt::get(Int1Ty, 0), signequal_bb);
         /* fractions comparison */
         PN->addIncoming(icmp_fraction_result, middle2_bb);
+        /* NaNs */
+        PN->addIncoming(ConstantInt::get(Int1Ty, NaNcmp_result), bb);
         break;
       case CmpInst::FCMP_ONE:
       case CmpInst::FCMP_UNE:
         /* unequal signs are unequal values */
         /* goto true branch */
-        PN->addIncoming(ConstantInt::get(Int1Ty, 1), bb);
+        PN->addIncoming(ConstantInt::get(Int1Ty, 1), nonan_bb);
         /* unequal exponents are unequal values, too */
         PN->addIncoming(icmp_exponent_result, signequal_bb);
         /* fractions comparison */
         PN->addIncoming(icmp_fraction_result, middle2_bb);
+        /* NaNs */
+        PN->addIncoming(ConstantInt::get(Int1Ty, NaNcmp_result), bb);
         break;
       case CmpInst::FCMP_OGT:
       case CmpInst::FCMP_UGT:
         /* if op1 is negative goto true branch,
            else go on comparing */
-        PN->addIncoming(t_s1, bb);
+        PN->addIncoming(t_s1, nonan_bb);
         PN->addIncoming(icmp_exponent_result, signequal2_bb);
         PN->addIncoming(PN2, middle2_bb);
+        /* NaNs */
+        PN->addIncoming(ConstantInt::get(Int1Ty, NaNcmp_result), bb);
         break;
       case CmpInst::FCMP_OLT:
       case CmpInst::FCMP_ULT:
         /* if op0 is negative goto true branch,
            else go on comparing */
-        PN->addIncoming(t_s0, bb);
+        PN->addIncoming(t_s0, nonan_bb);
         PN->addIncoming(icmp_exponent_result, signequal2_bb);
         PN->addIncoming(PN2, middle2_bb);
+        /* NaNs */
+        PN->addIncoming(ConstantInt::get(Int1Ty, NaNcmp_result), bb);
         break;
       default:
         continue;
@@ -1307,7 +1685,11 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
     }
 
     BasicBlock::iterator ii(FcmpInst);
+#if LLVM_MAJOR >= 16
+    ReplaceInstWithInst(FcmpInst->getParent(), ii, PN);
+#else
     ReplaceInstWithInst(FcmpInst->getParent()->getInstList(), ii, PN);
+#endif
     ++count;
 
   }
@@ -1316,18 +1698,19 @@ size_t SplitComparesTransform::splitFPCompares(Module &M) {
 
 }
 
+#if LLVM_MAJOR >= 11
+PreservedAnalyses SplitComparesTransform::run(Module                &M,
+                                              ModuleAnalysisManager &MAM) {
+
+#else
 bool SplitComparesTransform::runOnModule(Module &M) {
 
-  char *bitw_env = getenv("AFL_LLVM_LAF_SPLIT_COMPARES_BITW");
-  if (!bitw_env) bitw_env = getenv("LAF_SPLIT_COMPARES_BITW");
-  if (bitw_env) { target_bitwidth = atoi(bitw_env); }
-
-  enableFPSplit = getenv("AFL_LLVM_LAF_SPLIT_FLOATS") != NULL;
+#endif
 
   if ((isatty(2) && getenv("AFL_QUIET") == NULL) ||
       getenv("AFL_DEBUG") != NULL) {
 
-    errs() << "Split-compare-pass by laf.intel@gmail.com, extended by "
+    errs() << "Split-compare-newpass by laf.intel@gmail.com, extended by "
               "heiko@hexco.de (splitting icmp to "
            << target_bitwidth << " bit)\n";
 
@@ -1339,44 +1722,79 @@ bool SplitComparesTransform::runOnModule(Module &M) {
 
   }
 
-  if (enableFPSplit) {
+  char *bitw_env = getenv("AFL_LLVM_LAF_SPLIT_COMPARES_BITW");
+  if (!bitw_env) bitw_env = getenv("LAF_SPLIT_COMPARES_BITW");
+  if (bitw_env) { target_bitwidth = atoi(bitw_env); }
 
-    count = splitFPCompares(M);
+  if (getenv("AFL_LLVM_LAF_SPLIT_FLOATS")) { enableFPSplit = true; }
 
-    /*
-        if (!be_quiet) {
+  bool split_comp = false;
 
-          errs() << "Split-floatingpoint-compare-pass: " << count
-                 << " FP comparisons split\n";
+  if (getenv("AFL_LLVM_LAF_SPLIT_COMPARES")) {
 
-        }
-
-    */
-    simplifyFPCompares(M);
+#if LLVM_MAJOR == 17
+    if (!be_quiet)
+      fprintf(stderr,
+              "WARNING: AFL++ splitting integer comparisons is disabled in "
+              "LLVM 17 due bugs, switch to 16 or 18!\n");
+#else
+    split_comp = true;
+#endif
 
   }
 
-  std::vector<CmpInst *> worklist;
-  /* iterate over all functions, bbs and instruction search for all integer
-   * compare instructions. Save them into the worklist for later. */
-  for (auto &F : M) {
+#if LLVM_MAJOR >= 11
+  auto PA = PreservedAnalyses::all();
+#endif
 
-    if (!isInInstrumentList(&F)) continue;
+  if (enableFPSplit) {
 
-    for (auto &BB : F) {
+    simplifyFPCompares(M);
+    count = splitFPCompares(M);
 
-      for (auto &IN : BB) {
+    if (!be_quiet && !debug) {
 
-        if (auto CI = dyn_cast<CmpInst>(&IN)) {
+      errs() << "Split-floatingpoint-compare-pass: " << count
+             << " FP comparisons split\n";
 
-          auto op0 = CI->getOperand(0);
-          auto op1 = CI->getOperand(1);
-          if (!op0 || !op1) { return false; }
-          auto iTy1 = dyn_cast<IntegerType>(op0->getType());
-          if (iTy1 && isa<IntegerType>(op1->getType())) {
+    }
 
-            unsigned bitw = iTy1->getBitWidth();
-            if (isSupportedBitWidth(bitw)) { worklist.push_back(CI); }
+  }
+
+  if (split_comp) {
+
+    std::vector<CmpInst *> worklist;
+    /* iterate over all functions, bbs and instruction search for all integer
+     * compare instructions. Save them into the worklist for later. */
+    for (auto &F : M) {
+
+      if (!isInInstrumentList(&F, MNAME)) continue;
+
+      for (auto &BB : F) {
+
+        for (auto &IN : BB) {
+
+          if (auto CI = dyn_cast<CmpInst>(&IN)) {
+
+            auto op0 = CI->getOperand(0);
+            auto op1 = CI->getOperand(1);
+            if (!op0 || !op1) {
+
+#if LLVM_MAJOR >= 11
+              return PA;
+#else
+              return false;
+#endif
+
+            }
+
+            auto iTy1 = dyn_cast<IntegerType>(op0->getType());
+            if (iTy1 && isa<IntegerType>(op1->getType())) {
+
+              unsigned bitw = iTy1->getBitWidth();
+              if (isSupportedBitWidth(bitw)) { worklist.push_back(CI); }
+
+            }
 
           }
 
@@ -1386,19 +1804,19 @@ bool SplitComparesTransform::runOnModule(Module &M) {
 
     }
 
-  }
+    // now that we have a list of all integer comparisons we can start replacing
+    // them with the splitted alternatives.
+    for (auto CI : worklist) {
 
-  // now that we have a list of all integer comparisons we can start replacing
-  // them with the splitted alternatives.
-  for (auto CI : worklist) {
+      simplifyAndSplit(CI, M);
 
-    simplifyAndSplit(CI, M);
+    }
 
   }
 
   bool brokenDebug = false;
   if (verifyModule(M, &errs()
-#if LLVM_VERSION_MAJOR > 3 || \
+#if LLVM_VERSION_MAJOR >= 4 || \
     (LLVM_VERSION_MAJOR == 3 && LLVM_VERSION_MINOR >= 9)
                           ,
                    &brokenDebug  // 9th May 2016
@@ -1420,9 +1838,28 @@ bool SplitComparesTransform::runOnModule(Module &M) {
 
   }
 
+  if ((isatty(2) && getenv("AFL_QUIET") == NULL) ||
+      getenv("AFL_DEBUG") != NULL) {
+
+    errs() << count << " comparisons found\n";
+
+  }
+
+#if LLVM_MAJOR >= 11
+  /*  if (modified) {
+
+      PA.abandon<XX_Manager>();
+
+    }*/
+
+  return PA;
+#else
   return true;
+#endif
 
 }
+
+#if LLVM_MAJOR < 11                                 /* use old pass manager */
 
 static void registerSplitComparesPass(const PassManagerBuilder &,
                                       legacy::PassManagerBase &PM) {
@@ -1437,14 +1874,15 @@ static RegisterStandardPasses RegisterSplitComparesPass(
 static RegisterStandardPasses RegisterSplitComparesTransPass0(
     PassManagerBuilder::EP_EnabledOnOptLevel0, registerSplitComparesPass);
 
-#if LLVM_VERSION_MAJOR >= 11
+  #if LLVM_VERSION_MAJOR >= 11
 static RegisterStandardPasses RegisterSplitComparesTransPassLTO(
     PassManagerBuilder::EP_FullLinkTimeOptimizationLast,
     registerSplitComparesPass);
-#endif
+  #endif
 
 static RegisterPass<SplitComparesTransform> X("splitcompares",
                                               "AFL++ split compares",
                                               true /* Only looks at CFG */,
                                               true /* Analysis Pass */);
+#endif
 

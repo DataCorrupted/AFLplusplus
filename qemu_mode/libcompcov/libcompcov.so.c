@@ -5,7 +5,7 @@
 
    Written and maintained by Andrea Fioraldi <andreafioraldi@gmail.com>
 
-   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2024 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -41,6 +41,13 @@
   #error "Sorry, this library is Linux-specific for now!"
 #endif                                                        /* !__linux__ */
 
+#ifndef likely
+  #define likely(x) __builtin_expect((!!(x)), 1)
+#endif
+#ifndef unlikely
+  #define unlikely(x) __builtin_expect((!!(x)), 0)
+#endif
+
 /* Change this value to tune the compare coverage */
 
 #define MAX_CMP_LENGTH 32
@@ -61,7 +68,11 @@ static int debug_fd = -1;
 
 #define MAX_MAPPINGS 1024
 
-static struct mapping { void *st, *en; } __compcov_ro[MAX_MAPPINGS];
+static struct mapping {
+
+  void *st, *en;
+
+} __compcov_ro[MAX_MAPPINGS];
 
 static u32 __compcov_ro_cnt;
 
@@ -132,7 +143,7 @@ static void __compcov_load(void) {
   char *bin_name = getenv("AFL_COMPCOV_BINNAME");
 
   procmaps_iterator *maps = pmparser_parse(-1);
-  procmaps_struct *  maps_tmp = NULL;
+  procmaps_struct   *maps_tmp = NULL;
 
   while ((maps_tmp = pmparser_next(maps)) != NULL) {
 
@@ -199,6 +210,7 @@ static u8 __compcov_is_in_bound(const void *ptr) {
 
 int strcmp(const char *str1, const char *str2) {
 
+  if (unlikely(!__libc_strcmp)) { __libc_strcmp = dlsym(RTLD_NEXT, "strcmp"); }
   void *retaddr = __builtin_return_address(0);
 
   if (__compcov_is_in_bound(retaddr) &&
@@ -226,6 +238,12 @@ int strcmp(const char *str1, const char *str2) {
 #undef strncmp
 
 int strncmp(const char *str1, const char *str2, size_t len) {
+
+  if (unlikely(!__libc_strncmp)) {
+
+    __libc_strncmp = dlsym(RTLD_NEXT, "strncmp");
+
+  }
 
   void *retaddr = __builtin_return_address(0);
 
@@ -256,6 +274,12 @@ int strncmp(const char *str1, const char *str2, size_t len) {
 
 int strcasecmp(const char *str1, const char *str2) {
 
+  if (unlikely(!__libc_strcasecmp)) {
+
+    __libc_strncasecmp = dlsym(RTLD_NEXT, "strcasecmp");
+
+  }
+
   void *retaddr = __builtin_return_address(0);
 
   if (__compcov_is_in_bound(retaddr) &&
@@ -285,6 +309,12 @@ int strcasecmp(const char *str1, const char *str2) {
 #undef strncasecmp
 
 int strncasecmp(const char *str1, const char *str2, size_t len) {
+
+  if (unlikely(!__libc_strncasecmp)) {
+
+    __libc_strncasecmp = dlsym(RTLD_NEXT, "strncasecmp");
+
+  }
 
   void *retaddr = __builtin_return_address(0);
 
@@ -317,6 +347,7 @@ int strncasecmp(const char *str1, const char *str2, size_t len) {
 
 int memcmp(const void *mem1, const void *mem2, size_t len) {
 
+  if (unlikely(!__libc_memcmp)) { __libc_memcmp = dlsym(RTLD_NEXT, "memcmp"); }
   void *retaddr = __builtin_return_address(0);
 
   if (__compcov_is_in_bound(retaddr) &&

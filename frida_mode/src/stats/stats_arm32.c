@@ -1,34 +1,28 @@
 #include "frida-gumjs.h"
 
-#include "debug.h"
-
 #include "stats.h"
 #include "util.h"
 
 #if defined(__arm__)
 
-gboolean stats_is_supported_arch(void) {
+void starts_arch_init(void) {
 
-  return FALSE;
-
-}
-
-size_t stats_data_size_arch(void) {
-
-  FATAL("Stats not supported on this architecture");
+  FFATAL("Stats not supported on this architecture");
 
 }
 
-void stats_write_arch(void) {
+void stats_write_arch(stats_data_t *data) {
 
-  FATAL("Stats not supported on this architecture");
+  UNUSED_PARAMETER(data);
+  FFATAL("Stats not supported on this architecture");
 
 }
 
-void stats_collect_arch(const cs_insn *instr) {
+void stats_collect_arch(const cs_insn *instr, gboolean begin) {
 
   UNUSED_PARAMETER(instr);
-  FATAL("Stats not supported on this architecture");
+  UNUSED_PARAMETER(begin);
+  FFATAL("Stats not supported on this architecture");
 
 }
 

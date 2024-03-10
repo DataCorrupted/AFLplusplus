@@ -9,13 +9,13 @@
    from afl-as.c are Michal's fault.
 
    Copyright 2015, 2016 Google Inc. All rights reserved.
-   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2024 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     http://www.apache.org/licenses/LICENSE-2.0
+     https://www.apache.org/licenses/LICENSE-2.0
 
    This library is plugged into LLVM when invoking clang through afl-clang-fast.
    It tells the compiler to add code roughly equivalent to the bits discussed
@@ -43,9 +43,16 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Pass.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Transforms/IPO/PassManagerBuilder.h"
+// #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "llvm/Passes/PassPlugin.h"
+#include "llvm/Passes/PassBuilder.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/IR/CFG.h"
+#if LLVM_VERSION_MAJOR >= 14                /* how about stable interfaces? */
+  #include "llvm/Passes/OptimizationLevel.h"
+#endif
 
 #include "afl-llvm-common.h"
 
@@ -53,11 +60,10 @@ using namespace llvm;
 
 namespace {
 
-class AFLcheckIfInstrument : public ModulePass {
+class AFLcheckIfInstrument : public PassInfoMixin<AFLcheckIfInstrument> {
 
  public:
-  static char ID;
-  AFLcheckIfInstrument() : ModulePass(ID) {
+  AFLcheckIfInstrument() {
 
     if (getenv("AFL_DEBUG")) debug = 1;
 
@@ -65,12 +71,7 @@ class AFLcheckIfInstrument : public ModulePass {
 
   }
 
-  bool runOnModule(Module &M) override;
-
-  // StringRef getPassName() const override {
-
-  //  return "American Fuzzy Lop Instrumentation";
-  // }
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
 
  protected:
   std::list<std::string> myInstrumentList;
@@ -79,9 +80,29 @@ class AFLcheckIfInstrument : public ModulePass {
 
 }  // namespace
 
-char AFLcheckIfInstrument::ID = 0;
+extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK
+llvmGetPassPluginInfo() {
 
-bool AFLcheckIfInstrument::runOnModule(Module &M) {
+  return {LLVM_PLUGIN_API_VERSION, "AFLcheckIfInstrument", "v0.1",
+          /* lambda to insert our pass into the pass pipeline. */
+          [](PassBuilder &PB) {
+
+#if LLVM_VERSION_MAJOR <= 13
+            using OptimizationLevel = typename PassBuilder::OptimizationLevel;
+#endif
+            PB.registerOptimizerLastEPCallback(
+                [](ModulePassManager &MPM, OptimizationLevel OL) {
+
+                  MPM.addPass(AFLcheckIfInstrument());
+
+                });
+
+          }};
+
+}
+
+PreservedAnalyses AFLcheckIfInstrument::run(Module                &M,
+                                            ModuleAnalysisManager &MAM) {
 
   /* Show a banner */
 
@@ -102,7 +123,7 @@ bool AFLcheckIfInstrument::runOnModule(Module &M) {
 
     // fprintf(stderr, "F:%s\n", F.getName().str().c_str());
 
-    if (isInInstrumentList(&F)) {
+    if (isInInstrumentList(&F, MNAME)) {
 
       if (debug)
         DEBUGF("function %s is in the instrument file list\n",
@@ -114,21 +135,28 @@ bool AFLcheckIfInstrument::runOnModule(Module &M) {
         DEBUGF("function %s is NOT in the instrument file list\n",
                F.getName().str().c_str());
 
-      auto &        Ctx = F.getContext();
+      auto         &Ctx = F.getContext();
       AttributeList Attrs = F.getAttributes();
-      AttrBuilder   NewAttrs;
+#if LLVM_VERSION_MAJOR >= 14
+      AttributeList NewAttrs = Attrs.addFnAttribute(Ctx, "skipinstrument");
+      F.setAttributes(NewAttrs);
+#else
+      AttrBuilder NewAttrs;
       NewAttrs.addAttribute("skipinstrument");
       F.setAttributes(
           Attrs.addAttributes(Ctx, AttributeList::FunctionIndex, NewAttrs));
+#endif
 
     }
 
   }
 
-  return true;
+  auto PA = PreservedAnalyses::all();
+  return PA;
 
 }
 
+#if 0
 static void registerAFLcheckIfInstrumentpass(const PassManagerBuilder &,
                                              legacy::PassManagerBase &PM) {
 
@@ -143,4 +171,5 @@ static RegisterStandardPasses RegisterAFLcheckIfInstrumentpass(
 static RegisterStandardPasses RegisterAFLcheckIfInstrumentpass0(
     PassManagerBuilder::EP_EnabledOnOptLevel0,
     registerAFLcheckIfInstrumentpass);
+#endif
 

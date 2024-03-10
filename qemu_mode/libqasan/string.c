@@ -1,5 +1,5 @@
 /*******************************************************************************
-Copyright (c) 2019-2020, Andrea Fioraldi
+Copyright (c) 2019-2024, Andrea Fioraldi
 
 
 Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 void *__libqasan_memcpy(void *dest, const void *src, size_t n) {
 
-  unsigned char *      d = dest;
+  unsigned char       *d = dest;
   const unsigned char *s = src;
 
   if (!n) return dest;
@@ -47,7 +47,7 @@ void *__libqasan_memcpy(void *dest, const void *src, size_t n) {
 
 void *__libqasan_memmove(void *dest, const void *src, size_t n) {
 
-  unsigned char *      d = dest;
+  unsigned char       *d = dest;
   const unsigned char *s = src;
 
   if (!n) return dest;

@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *     https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,16 +26,25 @@
 
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/LegacyPassManager.h"
+#if LLVM_MAJOR >= 11                                /* use new pass manager */
+  #include "llvm/Passes/PassPlugin.h"
+  #include "llvm/Passes/PassBuilder.h"
+  #include "llvm/IR/PassManager.h"
+#else
+  #include "llvm/IR/LegacyPassManager.h"
+  #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#endif
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Pass.h"
 #include "llvm/Analysis/ValueTracking.h"
+#if LLVM_VERSION_MAJOR >= 14                /* how about stable interfaces? */
+  #include "llvm/Passes/OptimizationLevel.h"
+#endif
 
-#if LLVM_VERSION_MAJOR > 3 || \
+#if LLVM_VERSION_MAJOR >= 4 || \
     (LLVM_VERSION_MAJOR == 3 && LLVM_VERSION_MINOR > 4)
   #include "llvm/IR/Verifier.h"
   #include "llvm/IR/DebugInfo.h"
@@ -52,28 +61,45 @@ using namespace llvm;
 
 namespace {
 
+#if LLVM_MAJOR >= 11                                /* use new pass manager */
+class CompareTransform : public PassInfoMixin<CompareTransform> {
+
+ public:
+  CompareTransform() {
+
+#else
 class CompareTransform : public ModulePass {
 
  public:
   static char ID;
   CompareTransform() : ModulePass(ID) {
 
+#endif
+
     initInstrumentList();
 
   }
 
-  bool runOnModule(Module &M) override;
+#if LLVM_MAJOR < 11
+  #if LLVM_VERSION_MAJOR >= 4
+  StringRef getPassName() const override {
 
-#if LLVM_VERSION_MAJOR < 4
+  #else
   const char *getPassName() const override {
 
-#else
-  StringRef      getPassName() const override {
+  #endif
 
-#endif
-    return "transforms compare functions";
+    return "cmplog transform";
 
   }
+
+#endif
+
+#if LLVM_MAJOR >= 11                                /* use new pass manager */
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
+#else
+  bool runOnModule(Module &M) override;
+#endif
 
  private:
   bool transformCmps(Module &M, const bool processStrcmp,
@@ -85,7 +111,54 @@ class CompareTransform : public ModulePass {
 
 }  // namespace
 
+#if LLVM_MAJOR >= 11                                /* use new pass manager */
+extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK
+llvmGetPassPluginInfo() {
+
+  return {LLVM_PLUGIN_API_VERSION, "comparetransform", "v0.1",
+          /* lambda to insert our pass into the pass pipeline. */
+          [](PassBuilder &PB) {
+
+  #if 1
+    #if LLVM_VERSION_MAJOR <= 13
+            using OptimizationLevel = typename PassBuilder::OptimizationLevel;
+    #endif
+            PB.registerOptimizerLastEPCallback(
+                [](ModulePassManager &MPM, OptimizationLevel OL) {
+
+                  MPM.addPass(CompareTransform());
+
+                });
+
+  /* TODO LTO registration */
+  #else
+            using PipelineElement = typename PassBuilder::PipelineElement;
+            PB.registerPipelineParsingCallback([](StringRef          Name,
+                                                  ModulePassManager &MPM,
+                                                  ArrayRef<PipelineElement>) {
+
+              if (Name == "comparetransform") {
+
+                MPM.addPass(CompareTransform());
+                return true;
+
+              } else {
+
+                return false;
+
+              }
+
+            });
+
+  #endif
+
+          }};
+
+}
+
+#else
 char CompareTransform::ID = 0;
+#endif
 
 bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
                                      const bool processMemcmp,
@@ -95,22 +168,23 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
 
   DenseMap<Value *, std::string *> valueMap;
   std::vector<CallInst *>          calls;
-  LLVMContext &                    C = M.getContext();
-  IntegerType *                    Int8Ty = IntegerType::getInt8Ty(C);
-  IntegerType *                    Int32Ty = IntegerType::getInt32Ty(C);
-  IntegerType *                    Int64Ty = IntegerType::getInt64Ty(C);
+  LLVMContext                     &C = M.getContext();
+  IntegerType                     *Int1Ty = IntegerType::getInt1Ty(C);
+  IntegerType                     *Int8Ty = IntegerType::getInt8Ty(C);
+  IntegerType                     *Int32Ty = IntegerType::getInt32Ty(C);
+  IntegerType                     *Int64Ty = IntegerType::getInt64Ty(C);
 
-#if LLVM_VERSION_MAJOR < 9
-  Function *tolowerFn;
-#else
+#if LLVM_VERSION_MAJOR >= 9
   FunctionCallee tolowerFn;
+#else
+  Function *tolowerFn;
 #endif
   {
 
-#if LLVM_VERSION_MAJOR < 9
-    Constant *
-#else
+#if LLVM_VERSION_MAJOR >= 9
     FunctionCallee
+#else
+    Constant *
 #endif
         c = M.getOrInsertFunction("tolower", Int32Ty, Int32Ty
 #if LLVM_VERSION_MAJOR < 5
@@ -118,10 +192,10 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
                                   NULL
 #endif
         );
-#if LLVM_VERSION_MAJOR < 9
-    tolowerFn = cast<Function>(c);
-#else
+#if LLVM_VERSION_MAJOR >= 9
     tolowerFn = c;
+#else
+    tolowerFn = cast<Function>(c);
 #endif
 
   }
@@ -130,7 +204,7 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
    * strcmp/memcmp/strncmp/strcasecmp/strncasecmp */
   for (auto &F : M) {
 
-    if (!isInInstrumentList(&F)) continue;
+    if (!isInInstrumentList(&F, MNAME)) continue;
 
     for (auto &BB : F) {
 
@@ -151,12 +225,39 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
           if (!Callee) continue;
           if (callInst->getCallingConv() != llvm::CallingConv::C) continue;
           StringRef FuncName = Callee->getName();
-          isStrcmp &= !FuncName.compare(StringRef("strcmp"));
-          isMemcmp &= (!FuncName.compare(StringRef("memcmp")) ||
-                       !FuncName.compare(StringRef("bcmp")));
-          isStrncmp &= !FuncName.compare(StringRef("strncmp"));
-          isStrcasecmp &= !FuncName.compare(StringRef("strcasecmp"));
-          isStrncasecmp &= !FuncName.compare(StringRef("strncasecmp"));
+          isStrcmp &=
+              (!FuncName.compare("strcmp") || !FuncName.compare("xmlStrcmp") ||
+               !FuncName.compare("xmlStrEqual") ||
+               !FuncName.compare("curl_strequal") ||
+               !FuncName.compare("strcsequal") ||
+               !FuncName.compare("g_strcmp0"));
+          isMemcmp &=
+              (!FuncName.compare("memcmp") || !FuncName.compare("bcmp") ||
+               !FuncName.compare("CRYPTO_memcmp") ||
+               !FuncName.compare("OPENSSL_memcmp") ||
+               !FuncName.compare("memcmp_const_time") ||
+               !FuncName.compare("memcmpct"));
+          isStrncmp &= (!FuncName.compare("strncmp") ||
+                        !FuncName.compare("curl_strnequal") ||
+                        !FuncName.compare("xmlStrncmp"));
+          isStrcasecmp &= (!FuncName.compare("strcasecmp") ||
+                           !FuncName.compare("stricmp") ||
+                           !FuncName.compare("ap_cstr_casecmp") ||
+                           !FuncName.compare("OPENSSL_strcasecmp") ||
+                           !FuncName.compare("xmlStrcasecmp") ||
+                           !FuncName.compare("g_strcasecmp") ||
+                           !FuncName.compare("g_ascii_strcasecmp") ||
+                           !FuncName.compare("Curl_strcasecompare") ||
+                           !FuncName.compare("Curl_safe_strcasecompare") ||
+                           !FuncName.compare("cmsstrcasecmp"));
+          isStrncasecmp &= (!FuncName.compare("strncasecmp") ||
+                            !FuncName.compare("strnicmp") ||
+                            !FuncName.compare("ap_cstr_casecmpn") ||
+                            !FuncName.compare("OPENSSL_strncasecmp") ||
+                            !FuncName.compare("xmlStrncasecmp") ||
+                            !FuncName.compare("g_ascii_strncasecmp") ||
+                            !FuncName.compare("Curl_strncasecompare") ||
+                            !FuncName.compare("g_strncasecmp"));
           isIntMemcpy &= !FuncName.compare("llvm.memcpy.p0i8.p0i8.i64");
 
           if (!isStrcmp && !isMemcmp && !isStrncmp && !isStrcasecmp &&
@@ -170,28 +271,30 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
           isStrcmp &=
               FT->getNumParams() == 2 && FT->getReturnType()->isIntegerTy(32) &&
               FT->getParamType(0) == FT->getParamType(1) &&
-              FT->getParamType(0) == IntegerType::getInt8PtrTy(M.getContext());
+              FT->getParamType(0) ==
+                  IntegerType::getInt8Ty(M.getContext())->getPointerTo(0);
           isStrcasecmp &=
               FT->getNumParams() == 2 && FT->getReturnType()->isIntegerTy(32) &&
               FT->getParamType(0) == FT->getParamType(1) &&
-              FT->getParamType(0) == IntegerType::getInt8PtrTy(M.getContext());
+              FT->getParamType(0) ==
+                  IntegerType::getInt8Ty(M.getContext())->getPointerTo(0);
           isMemcmp &= FT->getNumParams() == 3 &&
                       FT->getReturnType()->isIntegerTy(32) &&
                       FT->getParamType(0)->isPointerTy() &&
                       FT->getParamType(1)->isPointerTy() &&
                       FT->getParamType(2)->isIntegerTy();
-          isStrncmp &= FT->getNumParams() == 3 &&
-                       FT->getReturnType()->isIntegerTy(32) &&
-                       FT->getParamType(0) == FT->getParamType(1) &&
-                       FT->getParamType(0) ==
-                           IntegerType::getInt8PtrTy(M.getContext()) &&
-                       FT->getParamType(2)->isIntegerTy();
-          isStrncasecmp &= FT->getNumParams() == 3 &&
-                           FT->getReturnType()->isIntegerTy(32) &&
-                           FT->getParamType(0) == FT->getParamType(1) &&
-                           FT->getParamType(0) ==
-                               IntegerType::getInt8PtrTy(M.getContext()) &&
-                           FT->getParamType(2)->isIntegerTy();
+          isStrncmp &=
+              FT->getNumParams() == 3 && FT->getReturnType()->isIntegerTy(32) &&
+              FT->getParamType(0) == FT->getParamType(1) &&
+              FT->getParamType(0) ==
+                  IntegerType::getInt8Ty(M.getContext())->getPointerTo(0) &&
+              FT->getParamType(2)->isIntegerTy();
+          isStrncasecmp &=
+              FT->getNumParams() == 3 && FT->getReturnType()->isIntegerTy(32) &&
+              FT->getParamType(0) == FT->getParamType(1) &&
+              FT->getParamType(0) ==
+                  IntegerType::getInt8Ty(M.getContext())->getPointerTo(0) &&
+              FT->getParamType(2)->isIntegerTy();
 
           if (!isStrcmp && !isMemcmp && !isStrncmp && !isStrcasecmp &&
               !isStrncasecmp && !isIntMemcpy)
@@ -219,7 +322,7 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
           if (!(HasStr1 || HasStr2)) {
 
             auto *Ptr = dyn_cast<ConstantExpr>(Str2P);
-            if (Ptr && Ptr->isGEPWithNoNotionalOverIndexing()) {
+            if (Ptr && Ptr->getOpcode() == Instruction::GetElementPtr) {
 
               if (auto *Var = dyn_cast<GlobalVariable>(Ptr->getOperand(0))) {
 
@@ -244,7 +347,7 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
             if (!HasStr2) {
 
               Ptr = dyn_cast<ConstantExpr>(Str1P);
-              if (Ptr && Ptr->isGEPWithNoNotionalOverIndexing()) {
+              if (Ptr && Ptr->getOpcode() == Instruction::GetElementPtr) {
 
                 if (auto *Var = dyn_cast<GlobalVariable>(Ptr->getOperand(0))) {
 
@@ -309,30 +412,21 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
 
             /* check if third operand is a constant integer
              * strlen("constStr") and sizeof() are treated as constant */
-            Value *      op2 = callInst->getArgOperand(2);
+            Value       *op2 = callInst->getArgOperand(2);
             ConstantInt *ilen = dyn_cast<ConstantInt>(op2);
             if (ilen) {
 
-              uint64_t len = ilen->getZExtValue();
               // if len is zero this is a pointless call but allow real
               // implementation to worry about that
-              if (len < 2) continue;
+              if (ilen->getZExtValue() < 2) { continue; }
 
-              if (isMemcmp) {
-
-                // if size of compare is larger than constant string this is
-                // likely a bug but allow real implementation to worry about
-                // that
-                uint64_t literalLength = HasStr1 ? Str1.size() : Str2.size();
-                if (literalLength + 1 < ilen->getZExtValue()) continue;
-
-              }
-
-            } else if (isMemcmp)
+            } else if (isMemcmp) {
 
               // this *may* supply a len greater than the constant string at
               // runtime so similarly we don't want to have to handle that
               continue;
+
+            }
 
           }
 
@@ -358,23 +452,70 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
           *Str2P = callInst->getArgOperand(1);
     StringRef   Str1, Str2, ConstStr;
     std::string TmpConstStr;
-    Value *     VarStr;
+    Value      *VarStr;
     bool        HasStr1 = getConstantStringInfo(Str1P, Str1);
     bool        HasStr2 = getConstantStringInfo(Str2P, Str2);
     uint64_t    constStrLen, unrollLen, constSizedLen = 0;
     bool        isMemcmp = false;
     bool        isSizedcmp = false;
     bool        isCaseInsensitive = false;
-    Function *  Callee = callInst->getCalledFunction();
+    bool        needs_null = false;
+    bool        success_is_one = false;
+    Function   *Callee = callInst->getCalledFunction();
+
     if (Callee) {
 
-      isMemcmp = Callee->getName().compare("memcmp") == 0;
-      isSizedcmp = isMemcmp || Callee->getName().compare("strncmp") == 0 ||
-                   Callee->getName().compare("strncasecmp") == 0;
-      isCaseInsensitive = Callee->getName().compare("strcasecmp") == 0 ||
-                          Callee->getName().compare("strncasecmp") == 0;
+      if (!Callee->getName().compare("memcmp") ||
+          !Callee->getName().compare("bcmp") ||
+          !Callee->getName().compare("CRYPTO_memcmp") ||
+          !Callee->getName().compare("OPENSSL_memcmp") ||
+          !Callee->getName().compare("memcmp_const_time") ||
+          !Callee->getName().compare("memcmpct") ||
+          !Callee->getName().compare("llvm.memcpy.p0i8.p0i8.i64"))
+        isMemcmp = true;
+
+      if (isMemcmp || !Callee->getName().compare("strncmp") ||
+          !Callee->getName().compare("xmlStrncmp") ||
+          !Callee->getName().compare("curl_strnequal") ||
+          !Callee->getName().compare("strncasecmp") ||
+          !Callee->getName().compare("strnicmp") ||
+          !Callee->getName().compare("ap_cstr_casecmpn") ||
+          !Callee->getName().compare("OPENSSL_strncasecmp") ||
+          !Callee->getName().compare("xmlStrncasecmp") ||
+          !Callee->getName().compare("g_ascii_strncasecmp") ||
+          !Callee->getName().compare("Curl_strncasecompare") ||
+          !Callee->getName().compare("g_strncasecmp"))
+        isSizedcmp = true;
+
+      if (!Callee->getName().compare("strcasecmp") ||
+          !Callee->getName().compare("stricmp") ||
+          !Callee->getName().compare("ap_cstr_casecmp") ||
+          !Callee->getName().compare("OPENSSL_strcasecmp") ||
+          !Callee->getName().compare("xmlStrcasecmp") ||
+          !Callee->getName().compare("g_strcasecmp") ||
+          !Callee->getName().compare("g_ascii_strcasecmp") ||
+          !Callee->getName().compare("Curl_strcasecompare") ||
+          !Callee->getName().compare("Curl_safe_strcasecompare") ||
+          !Callee->getName().compare("cmsstrcasecmp") ||
+          !Callee->getName().compare("strncasecmp") ||
+          !Callee->getName().compare("strnicmp") ||
+          !Callee->getName().compare("ap_cstr_casecmpn") ||
+          !Callee->getName().compare("OPENSSL_strncasecmp") ||
+          !Callee->getName().compare("xmlStrncasecmp") ||
+          !Callee->getName().compare("g_ascii_strncasecmp") ||
+          !Callee->getName().compare("Curl_strncasecompare") ||
+          !Callee->getName().compare("g_strncasecmp"))
+        isCaseInsensitive = true;
+
+      if (!Callee->getName().compare("xmlStrEqual") ||
+          !Callee->getName().compare("curl_strequal") ||
+          !Callee->getName().compare("strcsequal") ||
+          !Callee->getName().compare("curl_strnequal"))
+        success_is_one = true;
 
     }
+
+    if (!isSizedcmp) needs_null = true;
 
     Value *sizedValue = isSizedcmp ? callInst->getArgOperand(2) : NULL;
     bool   isConstSized = sizedValue && isa<ConstantInt>(sizedValue);
@@ -421,14 +562,17 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
     }
 
     if (TmpConstStr.length() < 2 ||
-        (TmpConstStr.length() == 2 && !TmpConstStr[1])) {
+        (TmpConstStr.length() == 2 && TmpConstStr[1] == 0)) {
 
       continue;
 
     }
 
+    // the following is in general OK, but strncmp is sometimes used in binary
+    // data structures and this can result in crashes :( so it is commented out
+
     // add null termination character implicit in c strings
-    if (!isMemcmp && TmpConstStr[TmpConstStr.length() - 1]) {
+    if (needs_null && TmpConstStr[TmpConstStr.length() - 1] != 0) {
 
       TmpConstStr.append("\0", 1);
 
@@ -437,7 +581,7 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
     // in the unusual case the const str has embedded null
     // characters, the string comparison functions should terminate
     // at the first null
-    if (!isMemcmp) {
+    if (!isMemcmp && TmpConstStr.find('\0') != std::string::npos) {
 
       TmpConstStr.assign(TmpConstStr, 0, TmpConstStr.find('\0') + 1);
 
@@ -472,23 +616,23 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
     PHINode *PN = PHINode::Create(
         Int32Ty, (next_lenchk_bb ? 2 : 1) * unrollLen + 1, "cmp_phi");
 
-#if LLVM_VERSION_MAJOR < 8
-    TerminatorInst *term = bb->getTerminator();
-#else
+#if LLVM_VERSION_MAJOR >= 8
     Instruction *term = bb->getTerminator();
+#else
+    TerminatorInst *term = bb->getTerminator();
 #endif
     BranchInst::Create(next_lenchk_bb ? next_lenchk_bb : next_cmp_bb, bb);
     term->eraseFromParent();
 
     for (uint64_t i = 0; i < unrollLen; i++) {
 
-      BasicBlock *  cur_cmp_bb = next_cmp_bb, *cur_lenchk_bb = next_lenchk_bb;
+      BasicBlock   *cur_cmp_bb = next_cmp_bb, *cur_lenchk_bb = next_lenchk_bb;
       unsigned char c;
 
       if (cur_lenchk_bb) {
 
         IRBuilder<> cur_lenchk_IRB(&*(cur_lenchk_bb->getFirstInsertionPt()));
-        Value *     icmp = cur_lenchk_IRB.CreateICmpEQ(
+        Value      *icmp = cur_lenchk_IRB.CreateICmpEQ(
             sizedValue, ConstantInt::get(sizedValue->getType(), i));
         cur_lenchk_IRB.CreateCondBr(icmp, end_bb, cur_cmp_bb);
         cur_lenchk_bb->getTerminator()->eraseFromParent();
@@ -505,8 +649,16 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
       IRBuilder<> cur_cmp_IRB(&*(cur_cmp_bb->getFirstInsertionPt()));
 
       Value *v = ConstantInt::get(Int64Ty, i);
-      Value *ele = cur_cmp_IRB.CreateInBoundsGEP(VarStr, v, "empty");
-      Value *load = cur_cmp_IRB.CreateLoad(ele);
+      Value *ele = cur_cmp_IRB.CreateInBoundsGEP(
+#if LLVM_VERSION_MAJOR >= 14
+          Int8Ty,
+#endif
+          VarStr, v, "empty");
+      Value *load = cur_cmp_IRB.CreateLoad(
+#if LLVM_VERSION_MAJOR >= 14
+          Int8Ty,
+#endif
+          ele);
 
       if (isCaseInsensitive) {
 
@@ -524,6 +676,14 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
         isub = cur_cmp_IRB.CreateSub(ConstantInt::get(Int8Ty, c), load);
       else
         isub = cur_cmp_IRB.CreateSub(load, ConstantInt::get(Int8Ty, c));
+
+      if (success_is_one && i == unrollLen - 1) {
+
+        Value *isubsub = cur_cmp_IRB.CreateTrunc(isub, Int1Ty);
+        isub = cur_cmp_IRB.CreateSelect(isubsub, ConstantInt::get(Int8Ty, 0),
+                                        ConstantInt::get(Int8Ty, 1));
+
+      }
 
       Value *sext = cur_cmp_IRB.CreateSExt(isub, Int32Ty);
       PN->addIncoming(sext, cur_cmp_bb);
@@ -566,7 +726,11 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
     /* since the call is the first instruction of the bb it is safe to
      * replace it with a phi instruction */
     BasicBlock::iterator ii(callInst);
+#if LLVM_MAJOR >= 16
+    ReplaceInstWithInst(callInst->getParent(), ii, PN);
+#else
     ReplaceInstWithInst(callInst->getParent()->getInstList(), ii, PN);
+#endif
 
   }
 
@@ -574,7 +738,13 @@ bool CompareTransform::transformCmps(Module &M, const bool processStrcmp,
 
 }
 
+#if LLVM_MAJOR >= 11                                /* use new pass manager */
+PreservedAnalyses CompareTransform::run(Module &M, ModuleAnalysisManager &MAM) {
+
+#else
 bool CompareTransform::runOnModule(Module &M) {
+
+#endif
 
   if ((isatty(2) && getenv("AFL_QUIET") == NULL) || getenv("AFL_DEBUG") != NULL)
     printf(
@@ -583,13 +753,28 @@ bool CompareTransform::runOnModule(Module &M) {
   else
     be_quiet = 1;
 
+#if LLVM_MAJOR >= 11                                /* use new pass manager */
+  auto PA = PreservedAnalyses::all();
+#endif
+
   transformCmps(M, true, true, true, true, true);
   verifyModule(M);
 
+#if LLVM_MAJOR >= 11                                /* use new pass manager */
+                     /*  if (modified) {
+                   
+                         PA.abandon<XX_Manager>();
+                   
+                       }*/
+
+  return PA;
+#else
   return true;
+#endif
 
 }
 
+#if LLVM_MAJOR < 11                                 /* use old pass manager */
 static void registerCompTransPass(const PassManagerBuilder &,
                                   legacy::PassManagerBase &PM) {
 
@@ -604,8 +789,9 @@ static RegisterStandardPasses RegisterCompTransPass(
 static RegisterStandardPasses RegisterCompTransPass0(
     PassManagerBuilder::EP_EnabledOnOptLevel0, registerCompTransPass);
 
-#if LLVM_VERSION_MAJOR >= 11
+  #if LLVM_VERSION_MAJOR >= 11
 static RegisterStandardPasses RegisterCompTransPassLTO(
     PassManagerBuilder::EP_FullLinkTimeOptimizationLast, registerCompTransPass);
+  #endif
 #endif
 

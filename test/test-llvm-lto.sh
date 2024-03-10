@@ -3,7 +3,7 @@
 . ./test-pre.sh
 
 $ECHO "$BLUE[*] Testing: LTO llvm_mode"
-test -e ../afl-clang-lto -a -e ../afl-llvm-lto-instrumentation.so && {
+test -e ../afl-clang-lto -a -e ../SanitizerCoverageLTO.so && {
   # on FreeBSD need to set AFL_CC
   test `uname -s` = 'FreeBSD' && {
     if type clang >/dev/null; then
@@ -49,6 +49,9 @@ test -e ../afl-clang-lto -a -e ../afl-llvm-lto-instrumentation.so && {
     grep -q "No instrumentation targets found" test.out && {
       $ECHO "$GREEN[+] llvm_mode LTO instrumentlist feature works correctly"
     } || {
+	echo CUT------------------------------------------------------------------CUT
+        cat test.out
+        echo CUT------------------------------------------------------------------CUT
       $ECHO "$RED[!] llvm_mode LTO instrumentlist feature failed"
       CODE=1
     }

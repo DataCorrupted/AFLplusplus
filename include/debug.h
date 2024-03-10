@@ -10,13 +10,13 @@
                      Dominik Maier <mail@dmnk.co>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2024 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at:
 
-     http://www.apache.org/licenses/LICENSE-2.0
+     https://www.apache.org/licenses/LICENSE-2.0
 
  */
 
@@ -116,7 +116,7 @@
  * Box drawing sequences *
  *************************/
 
-#ifdef FANCY_BOXES
+#ifdef FANCY_BOXES_NO_UTF
 
   #define SET_G1 "\x1b)0"                      /* Set G1 for box drawing    */
   #define RESET_G1 "\x1b)B"                    /* Reset G1 to ASCII         */
@@ -136,22 +136,43 @@
 
 #else
 
-  #define SET_G1 ""
-  #define RESET_G1 ""
-  #define bSTART ""
-  #define bSTOP ""
-  #define bH "-"
-  #define bV "|"
-  #define bLT "+"
-  #define bRT "+"
-  #define bLB "+"
-  #define bRB "+"
-  #define bX "+"
-  #define bVR "+"
-  #define bVL "+"
-  #define bHT "+"
-  #define bHB "+"
+  #ifdef FANCY_BOXES
 
+    #define SET_G1 ""
+    #define RESET_G1 ""
+    #define bSTART ""
+    #define bSTOP ""
+    #define bH "\u2500"                        /* Horizontal line           */
+    #define bV "\u2502"                        /* Vertical line             */
+    #define bLT "\u250c"                       /* Left top corner           */
+    #define bRT "\u2510"                       /* Right top corner          */
+    #define bLB "\u2514"                       /* Left bottom corner        */
+    #define bRB "\u2518"                       /* Right bottom corner       */
+    #define bX "\u253c"                        /* Cross                     */
+    #define bVR "\u251c"                       /* Vertical, branch right    */
+    #define bVL "\u2524"                       /* Vertical, branch left     */
+    #define bHT "\u2534"                       /* Horizontal, branch top    */
+    #define bHB "\u252c"                       /* Horizontal, branch bottom */
+
+  #else
+
+    #define SET_G1 ""
+    #define RESET_G1 ""
+    #define bSTART ""
+    #define bSTOP ""
+    #define bH "-"
+    #define bV "|"
+    #define bLT "+"
+    #define bRT "+"
+    #define bLB "+"
+    #define bRB "+"
+    #define bX "+"
+    #define bVR "+"
+    #define bVL "+"
+    #define bHT "+"
+    #define bHB "+"
+
+  #endif
 #endif                                                      /* ^FANCY_BOXES */
 
 /***********************
@@ -192,7 +213,7 @@ static inline const char *colorfilter(const char *x) {
   if (likely(disabled)) return x;
 
   static char monochromestring[4096];
-  char *      d = monochromestring;
+  char       *d = monochromestring;
   int         in_seq = 0;
 
   while (*x) {
@@ -355,20 +376,41 @@ static inline const char *colorfilter(const char *x) {
 /* Error-checking versions of read() and write() that call RPFATAL() as
    appropriate. */
 
-#define ck_write(fd, buf, len, fn)                                        \
-  do {                                                                    \
-                                                                          \
-    int _fd = (fd);                                                       \
-                                                                          \
-    s32 _len = (s32)(len);                                                \
-    s32 _res = write(_fd, (buf), _len);                                   \
-    if (_res != _len) {                                                   \
-                                                                          \
-      RPFATAL(_res, "Short write to %s, fd %d (%d of %d bytes)", fn, _fd, \
-              _res, _len);                                                \
-                                                                          \
-    }                                                                     \
-                                                                          \
+#define ck_write(fd, buf, len, fn)                                            \
+  do {                                                                        \
+                                                                              \
+    if (len <= 0) break;                                                      \
+    int _fd = (fd);                                                           \
+    s32 _written = 0, _off = 0, _len = (s32)(len);                            \
+                                                                              \
+    do {                                                                      \
+                                                                              \
+      s32 _res = write(_fd, (buf) + _off, _len);                              \
+      if (_res != _len && (_res > 0 && _written + _res != _len)) {            \
+                                                                              \
+        if (_res > 0) {                                                       \
+                                                                              \
+          _written += _res;                                                   \
+          _len -= _res;                                                       \
+          _off += _res;                                                       \
+                                                                              \
+        } else {                                                              \
+                                                                              \
+          RPFATAL(_res, "Short write to %s, fd %d (%d of %d bytes)", fn, _fd, \
+                  _res, _len);                                                \
+                                                                              \
+        }                                                                     \
+                                                                              \
+      } else {                                                                \
+                                                                              \
+        break;                                                                \
+                                                                              \
+      }                                                                       \
+                                                                              \
+    } while (1);                                                              \
+                                                                              \
+                                                                              \
+                                                                              \
   } while (0)
 
 #define ck_read(fd, buf, len, fn)                              \

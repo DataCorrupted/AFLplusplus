@@ -1,9 +1,9 @@
 PWD:=$(shell pwd)/
-ROOT:=$(shell realpath $(PWD)../../../..)/
+ROOT:=$(PWD)../../../../
 BUILD_DIR:=$(PWD)build/
 
 TEST_BIN:=$(PWD)../build/test
-TEST_DATA_DIR:=../build/libpng/libpng-1.2.56/contrib/pngsuite/
+TEST_DATA_DIR:=$(PWD)../build/libpng/libpng-1.2.56/contrib/pngsuite/
 
 AFLPP_DRIVER_DUMMY_INPUT:=$(BUILD_DIR)in
 QEMU_OUT:=$(BUILD_DIR)qemu-out
@@ -21,18 +21,22 @@ ifeq "$(ARCH)" "i686"
 endif
 endif
 
-AFL_QEMU_PERSISTENT_ADDR=$(shell $(PWD)get_symbol_addr.py -f $(TEST_BIN) -s main -b 0x4000000000)
+ADDR_BIN:=$(ROOT)frida_mode/build/addr
+GET_SYMBOL_ADDR:=$(ROOT)frida_mode/util/frida_get_symbol_addr.sh
+
+AFL_FRIDA_BASE_ADDR:=$(shell $(ADDR_BIN))
+AFL_FRIDA_PERSISTENT_ADDR=$(shell $(GET_SYMBOL_ADDR) $(TEST_BIN) LLVMFuzzerTestOneInput $(AFL_FRIDA_BASE_ADDR))
 
 ifeq "$(ARCH)" "arm64"
- AFL_FRIDA_PERSISTENT_ADDR=$(shell $(PWD)get_symbol_addr.py -f $(TEST_BIN) -s main -b 0x0000aaaaaaaaa000)
+ AFL_QEMU_PERSISTENT_ADDR=$(shell $(GET_SYMBOL_ADDR) $(TEST_BIN) LLVMFuzzerTestOneInput 0x5500000000)
 endif
 
 ifeq "$(ARCH)" "x86_64"
- AFL_FRIDA_PERSISTENT_ADDR=$(shell $(PWD)get_symbol_addr.py -f $(TEST_BIN) -s main -b 0x0000555555554000)
+ AFL_QEMU_PERSISTENT_ADDR=$(shell $(GET_SYMBOL_ADDR) $(TEST_BIN) LLVMFuzzerTestOneInput 0x4000000000)
 endif
 
 ifeq "$(ARCH)" "x86"
- AFL_FRIDA_PERSISTENT_ADDR=$(shell $(PWD)get_symbol_addr.py -f $(TEST_BIN) -s main -b 0x56555000)
+ AFL_QEMU_PERSISTENT_ADDR=$(shell $(GET_SYMBOL_ADDR) $(TEST_BIN) LLVMFuzzerTestOneInput 0x4000000000)
 endif
 
 .PHONY: all 32 clean qemu qemu_entry frida frida_entry
@@ -47,7 +51,7 @@ $(BUILD_DIR):
 	mkdir -p $@
 
 $(AFLPP_DRIVER_DUMMY_INPUT): | $(BUILD_DIR)
-	truncate -s 1M $@
+	dd if=/dev/zero bs=1048576 count=1 of=$@
 
 qemu: | $(BUILD_DIR)
 	AFL_QEMU_PERSISTENT_ADDR=$(AFL_QEMU_PERSISTENT_ADDR) \
