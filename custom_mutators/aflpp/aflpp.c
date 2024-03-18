@@ -82,7 +82,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
     printf("request send failed");
   }
   // receive seed info from llm
-  int rcv_status = msgrcv(msqid, &my_msg, sizeof(message_seed_t) - sizeof(long), -2, IPC_NOWAIT);
+  int rcv_status = msgrcv(msqid, &my_msg, sizeof(message_seed_t) - sizeof(long), 2, IPC_NOWAIT);
 
   if (rcv_status != -1 ) {
     // receive non-empty seed(uid+seed)
@@ -112,6 +112,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
       size = byteLength;
     }
     else if (my_msg.data_type == TYPE_TEXT_SEED){
+      printf("RECEIVED:::");
       size_t hexLength = strlen(my_msg.data_buff)+1<=max_size?strlen(my_msg.data_buff)+1 : max_size;
       memcpy(data->fuzz_buf, my_msg.data_buff, strlen(hexLength));
     }
