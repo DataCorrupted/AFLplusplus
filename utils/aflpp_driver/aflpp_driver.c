@@ -77,7 +77,7 @@ extern unsigned int   __afl_map_size;
 /* Using the weak attributed on LLVMFuzzerTestOneInput() breaks oss-fuzz but
    on the other hand this is what Google needs to make LLVMFuzzerRunDriver()
    work. Choose your poison Google! */
-/*__attribute__((weak))*/ int LLVMFuzzerTestOneInput(const uint8_t *Data,
+__attribute__((weak)) int LLVMFuzzerTestOneInput(const uint8_t *Data,
                                                      size_t         Size);
 __attribute__((weak)) int     LLVMFuzzerInitialize(int *argc, char ***argv);
 __attribute__((weak)) int     LLVMFuzzerRunDriver(
