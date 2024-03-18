@@ -111,7 +111,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
       memset(my_msg.data_buff, '\0', sizeof(my_msg.data_buff));
       size = byteLength;
     }
-    else if my_msg.data_type == TYPE_TEXT_SEED){
+    else if (my_msg.data_type == TYPE_TEXT_SEED){
       size_t hexLength = strlen(my_msg.data_buff)+1<=max_size?strlen(my_msg.data_buff)+1 : max_size;
       memcpy(data->fuzz_buf, my_msg.data_buff, strlen(hexLength));
     }
