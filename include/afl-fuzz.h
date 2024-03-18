@@ -274,7 +274,7 @@ enum {
 };
 
 #define TYPE_SEED 1
-#define TYPE_EMPTY_SEED 2
+#define TYPE_TEXT_SEED 2
 #define TYPE_REWARD 3
 #define TYPE_REQUEST 4
 
