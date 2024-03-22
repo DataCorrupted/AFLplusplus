@@ -42,18 +42,6 @@ my_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
 
 }
 
-void printBuffer(u8 **out_buf, size_t size) {
-    if (out_buf == NULL || *out_buf == NULL) {
-        printf("Buffer is null.\n");
-        return;
-    }
-
-    for (size_t i = 0; i < size; i++) {
-        printf("%02x ", (*out_buf)[i]);
-    }
-    printf("\n");
-}
-
 size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
                        u8 **out_buf, uint8_t *add_buf,
                        size_t add_buf_size,  // add_buf can be NULL
@@ -83,6 +71,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   //test text info
   if (buf_size<=2040){
     memcpy(fuzzer_seed.data_buff,buf,buf_size);
+    print("::::fuzzer_seed.data_buff send %s\n",fuzzer_seed.data_buff);
     snd_status = msgsnd(msqid, &fuzzer_seed, buf_size*2+4, 0);
   }
   else{
@@ -108,10 +97,8 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   int rcv_status = msgrcv(msqid, &my_msg, sizeof(message_seed_t) - sizeof(long), -2, IPC_NOWAIT);
 
   if (rcv_status != -1 ) {
-    printf(":::: my_msg.data_buff %s",my_msg.data_buff);
     // receive non-empty seed(uid+seed)
     if (my_msg.data_type == TYPE_SEED){
-      printf("::::my_msg.data_type == TYPE_SEED");
       size_t hexLength = strlen(my_msg.data_buff);
       // hex string length is even, my_msg.data_buff has redundancies size
       if (hexLength%2!=0) {
@@ -137,12 +124,9 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
       size = byteLength;
     }
     else if (my_msg.data_type == TYPE_TEXT_SEED){
-      printf("::::my_msg.data_type == TYPE_TEXT_SEED");
-      // size_t hexLength = strlen(my_msg.data_buff)+1<=max_size?strlen(my_msg.data_buff)+1 : max_size;
-      // memcpy(data->fuzz_buf, my_msg.data_buff, strlen(hexLength));
-    }
-    else{
-      printf("::::my_msg.data_type == %d\n",my_msg.data_type);
+      printf("::::my_msg.data_type == TYPE_TEXT_SEED\n");
+      size_t hexLength = strlen(my_msg.data_buff)<=max_size?strlen(my_msg.data_buff) : max_size;
+      memcpy(data->fuzz_buf, my_msg.data_buff, hexLength);
     }
   }
   else {
