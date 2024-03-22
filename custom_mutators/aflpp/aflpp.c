@@ -71,7 +71,6 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   //test text info
   if (buf_size<=2040){
     memcpy(fuzzer_seed.data_buff,buf,buf_size);
-    printf("::::fuzzer_seed.data_buff send %s\n",fuzzer_seed.data_buff);
     snd_status = msgsnd(msqid, &fuzzer_seed, buf_size+4, 0);
   }
   else{
@@ -124,9 +123,11 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
       size = byteLength;
     }
     else if (my_msg.data_type == TYPE_TEXT_SEED){
-      printf("::::my_msg.data_type == TYPE_TEXT_SEED\n");
       size_t hexLength = strlen(my_msg.data_buff)<=max_size?strlen(my_msg.data_buff) : max_size;
+      data->afl->from_llm =true;
+      data->afl->unique_id = my_msg.data_num;
       memcpy(data->fuzz_buf, my_msg.data_buff, hexLength);
+      size = hexLength;
     }
   }
   else {
