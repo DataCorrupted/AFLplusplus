@@ -81,6 +81,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   if (snd_status == -1) {
     printf("request send failed");
   }
+  printf("BEEN here:::\n");
   // receive seed info from llm
   int rcv_status = msgrcv(msqid, &my_msg, sizeof(message_seed_t) - sizeof(long), -2, IPC_NOWAIT);
 
