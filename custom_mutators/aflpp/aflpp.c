@@ -72,7 +72,7 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   if (buf_size<=2040){
     memcpy(fuzzer_seed.data_buff,buf,buf_size);
     print("::::fuzzer_seed.data_buff send %s\n",fuzzer_seed.data_buff);
-    snd_status = msgsnd(msqid, &fuzzer_seed, buf_size*2+4, 0);
+    snd_status = msgsnd(msqid, &fuzzer_seed, buf_size+4, 0);
   }
   else{
     snd_status = msgsnd(msqid, &fuzzer_seed, 0, 0);
