@@ -450,6 +450,7 @@ typedef struct afl_state {
   u32 _id;
 
   bool             from_llm;
+  int              msgqid;
   int              unique_id;/* UNIQUE ID of the SEED*/
   afl_forkserver_t fsrv;
   sharedmem_t      shm;

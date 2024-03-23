@@ -36,6 +36,13 @@ my_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
     return NULL;
 
   }
+
+  int msqid = msgget((key_t)1234, IPC_CREAT | 0666);
+  if (msqid == -1) {
+    printf("msgget() failed");
+  }
+  afl->msgqid = msqid;
+
   data->afl = afl;
 
   return data;
@@ -57,36 +64,31 @@ size_t afl_custom_fuzz(my_mutator_t *data, uint8_t *buf, size_t buf_size,
   */
   message_seed_t my_msg,fuzzer_seed;
   
-  // Create or open the message queue
-  int msqid = msgget((key_t)1234, IPC_CREAT | 0666);
-  if (msqid == -1) {
-    printf("msgget() failed");
-  }
-  
+  int msqid = data->afl->msgqid;
   // send the request with seed from fuzzer
   fuzzer_seed.data_type = TYPE_REQUEST;
   int snd_status;
   // message size is limited to 2048
   
   //test text info
-  if (buf_size<=2040){
-    memcpy(fuzzer_seed.data_buff,buf,buf_size);
-    snd_status = msgsnd(msqid, &fuzzer_seed, buf_size+4, 0);
-  }
-  else{
-    snd_status = msgsnd(msqid, &fuzzer_seed, 0, 0);
-  }
-  //end test
-
-  // if (buf_size*2+1<=2040){
-  //   for (size_t i=0; i< buf_size;i++){
-  //     sprintf(fuzzer_seed.data_buff + (i * 2), "%02X", buf[i]);
-  //   }
-  //   snd_status = msgsnd(msqid, &fuzzer_seed, buf_size*2+4, 0);
+  // if (buf_size<=2040){
+  //   memcpy(fuzzer_seed.data_buff,buf,buf_size);
+  //   snd_status = msgsnd(msqid, &fuzzer_seed, buf_size+4, 0);
   // }
   // else{
   //   snd_status = msgsnd(msqid, &fuzzer_seed, 0, 0);
   // }
+  //end test
+
+  if (buf_size*2+1<=2040){
+    for (size_t i=0; i< buf_size;i++){
+      sprintf(fuzzer_seed.data_buff + (i * 2), "%02X", buf[i]);
+    }
+    snd_status = msgsnd(msqid, &fuzzer_seed, buf_size*2+4, 0);
+  }
+  else{
+    snd_status = msgsnd(msqid, &fuzzer_seed, 0, 0);
+  }
   memset(fuzzer_seed.data_buff, 0, sizeof(fuzzer_seed.data_buff));
 
   if (snd_status == -1) {
