@@ -112,7 +112,7 @@ __attribute__((weak)) void __asan_unpoison_memory_region(
 __attribute__((weak)) void *__asan_region_is_poisoned(void *beg, size_t size);
 
 // Notify AFL about persistent mode.
-static volatile char AFL_PERSISTENT[] = "##SIG_AFL_PERSISTENT##";
+static volatile char AFL_PERSISTENT[] = "##SIG_AFL_NOT_PERSISTENT##";
 int                  __afl_persistent_loop(unsigned int);
 
 // Notify AFL about deferred forkserver.
