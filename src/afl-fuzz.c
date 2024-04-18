@@ -906,7 +906,7 @@ int main(int argc, char **argv_orig, char **envp) {
 
         u8 suffix = 'M';
 
-        if (mem_limit_given) { WARNF("Multiple -m options not supported") continue;FATAL("Multiple -m options not supported"); }
+        if (mem_limit_given) { WARNF("Multiple -m options not supported"); continue;FATAL("Multiple -m options not supported"); }
         mem_limit_given = 1;
 
         if (!optarg) { FATAL("Wrong usage of -m"); }
