@@ -476,7 +476,6 @@ int main(int argc, char **argv_orig, char **envp) {
   u64 prev_queued = 0;
   u32 sync_interval_cnt = 0, seek_to = 0, show_help = 0, default_output = 1,
       map_size = get_map_size();
-  printf("AT first mapsize %d\n",map_size);
 
   u8 *extras_dir[4];
   u8  mem_limit_given = 0, exit_1 = 0, debug = 0,
