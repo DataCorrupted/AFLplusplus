@@ -65,7 +65,7 @@ extern "C" {
 #endif
 
 // AFL++ shared memory fuzz cases
-int                   __afl_sharedmem_fuzzing = 1;
+int                   __afl_sharedmem_fuzzing = 0;
 extern unsigned int  *__afl_fuzz_len;
 extern unsigned char *__afl_fuzz_ptr;
 
@@ -82,6 +82,13 @@ __attribute__((weak)) int LLVMFuzzerTestOneInput(const uint8_t *Data,
 __attribute__((weak)) int     LLVMFuzzerInitialize(int *argc, char ***argv);
 __attribute__((weak)) int     LLVMFuzzerRunDriver(
         int *argc, char ***argv, int (*callback)(const uint8_t *data, size_t size));
+
+__attribute__((weak))
+int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size)
+{
+  // assert(0 && "LLVMFuzzerTestOneInput should not be implemented in afl_driver");
+  return 0;
+}
 
 // Default nop ASan hooks for manual poisoning when not linking the ASan
 // runtime
